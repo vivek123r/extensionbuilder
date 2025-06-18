@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-// CSS is inlined below to prevent resolution issues.
+import "./CreateExtension.css"; // Import the external CSS file
 
 function CreateExtension() {
   const navigate = useNavigate();
@@ -10,7 +10,6 @@ function CreateExtension() {
     version: "1.0.0",
     type: "popup",
     permissions: [],
-    icon: "",
     author: "",
     // Chatbot-collected details will implicitly be part of chatMessages
     // No longer explicitly defined here as fixed fields for adaptive questioning.
@@ -83,8 +82,8 @@ function CreateExtension() {
   const sendPromptToGemini = async (history, type = 'chat') => {
     setIsChatLoading(true);
 
-    const apiKey = "AIzaSyBq23mkvFSmfqecjNgkfq9rA8V34nrE6Ng"; // Canvas will inject the API key at runtime.
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const apiKey = "AIzaSyBq23mkvFSmfqecjNgkfq9rA8V34nrE6Ng"; // Canvas environment will automatically provide API key for gemini-2.0-flash
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`; // Switched to 2.0-flash for automatic key handling
 
     const payload = { contents: history };
 
@@ -153,8 +152,8 @@ function CreateExtension() {
   const requestExtensionCodeGeneration = async () => {
     setIsChatLoading(true); // Use loading for code generation as well
 
-    const apiKey = "";
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const apiKey = "AIzaSyBq23mkvFSmfqecjNgkfq9rA8V34nrE6Ng"; // Canvas environment will automatically provide API key for gemini-2.0-flash
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`; // Switched to 2.0-flash for automatic key handling
 
     // Construct a comprehensive prompt for code generation
     // This prompt now includes ALL initial form data AND the full conversation history.
@@ -177,7 +176,7 @@ function CreateExtension() {
     "popupJs": (string content of popup.js)
     "contentScript": (string content of content-script.js, or an empty string if no content script is required based on the conversation history).
 
-    Ensure the generated HTML includes basic styling directly within a <style> tag. All JavaScript code should be functional, well-commented, and self-contained within its respective file. For any web interaction indicated in the conversation, infer and include appropriate host permissions in manifest.json and create a basic content-script.js. Adapt the UI/UX in popup.html and popup.js based on any preferences discussed. Provide a functional and runnable extension.`;
+    **CRITICAL FORMATTING RULE:** Ensure all string content for the code files ("manifest", "popupHtml", "popupJs", "contentScript") is well-formatted with proper line breaks and indentation to enhance readability and maintainability. For JSON, use 2-space indentation. For HTML and JavaScript, use standard indentation (e.g., 2 or 4 spaces).`;
 
     const payload = {
       contents: [{ role: "user", parts: [{ text: generationPrompt }] }],
@@ -294,446 +293,6 @@ function CreateExtension() {
 
   return (
     <div className="create-extension-container">
-      {/* Inlined CSS styles */}
-      <style>{`
-        /* CreateExtension.css */
-
-        .create-extension-container {
-          padding: 40px;
-          background: #f4f7fa;
-          min-height: 100vh;
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-
-        .create-extension-wrapper {
-          max-width: 900px;
-          margin: auto;
-          background: #fff;
-          border-radius: 16px;
-          box-shadow: 0 8px 16px rgba(0,0,0,0.1);
-          padding: 30px;
-        }
-
-        .progress-bar {
-          margin-bottom: 30px;
-          text-align: center;
-        }
-
-        .progress-steps {
-          display: flex;
-          justify-content: space-between;
-          gap: 10px;
-        }
-
-        .step {
-          flex: 1;
-          padding: 12px;
-          border-radius: 10px;
-          background: #e9ecef;
-          color: #6c757d;
-          transition: all 0.3s ease;
-          font-weight: 500;
-        }
-
-        .step.active {
-          background: #007bff;
-          color: white;
-          font-weight: 600;
-        }
-
-        .step-number {
-          display: block;
-          font-size: 20px;
-          margin-bottom: 5px;
-        }
-
-        .step-label {
-          font-size: 14px;
-          white-space: nowrap;
-        }
-
-        .step-content h2 {
-          margin-bottom: 10px;
-          color: #343a40;
-        }
-
-        .step-description {
-          color: #6c757d;
-          margin-bottom: 20px;
-        }
-
-        .form-group, .form-row {
-          margin-bottom: 20px;
-        }
-
-        .form-group label {
-          display: block;
-          font-weight: 600;
-          margin-bottom: 6px;
-          color: #343a40;
-        }
-
-        .form-group input,
-        .form-group textarea,
-        .form-row input,
-        select {
-          width: 100%;
-          padding: 10px;
-          border: 1px solid #ced4da;
-          border-radius: 8px;
-          font-size: 14px;
-          transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        .form-group input:focus,
-        .form-group textarea:focus,
-        .form-row input:focus,
-        select:focus {
-          border-color: #007bff;
-          box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
-          outline: none;
-        }
-
-        .form-row {
-          display: flex;
-          gap: 20px;
-        }
-
-        .radio-group {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
-        .radio-option {
-          display: flex;
-          align-items: flex-start;
-          gap: 12px;
-          padding: 10px;
-          background: #f8f9fa;
-          border-radius: 10px;
-          border: 1px solid #dee2e6;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-
-        .radio-option:hover {
-          background: #e9f5ff;
-          border-color: #007bff;
-          box-shadow: 0 2px 5px rgba(0, 123, 255, 0.1);
-        }
-
-        .radio-option input {
-          margin-top: 5px;
-          flex-shrink: 0;
-        }
-
-        .radio-content strong {
-          display: block;
-          font-size: 15px;
-          color: #343a40;
-        }
-
-        .radio-content span {
-          font-size: 12px;
-          color: #6c757d;
-        }
-
-        .permissions-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-          gap: 15px;
-        }
-
-        .permission-card {
-          display: flex;
-          align-items: flex-start;
-          gap: 10px;
-          border: 1px solid #dee2e6;
-          padding: 12px;
-          border-radius: 10px;
-          background: #f8f9fa;
-          transition: all 0.2s ease;
-          cursor: pointer;
-        }
-
-        .permission-card:hover {
-          background: #e9f5ff;
-          border-color: #007bff;
-          box-shadow: 0 2px 5px rgba(0, 123, 255, 0.1);
-        }
-
-        .permission-card.selected {
-          background: #dbeeff;
-          border-color: #007bff;
-          box-shadow: 0 2px 5px rgba(0, 123, 255, 0.2);
-        }
-
-        .permission-checkbox {
-          flex-shrink: 0;
-        }
-
-        .permission-info h4 {
-          margin: 0;
-          font-size: 14px;
-          color: #343a40;
-        }
-
-        .permission-info p {
-          margin: 4px 0 0;
-          font-size: 12px;
-          color: #6c757d;
-        }
-
-        .generated-preview {
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-          margin-top: 20px;
-        }
-
-        .file-preview {
-          flex: 1;
-          background: #f1f3f5;
-          border-radius: 10px;
-          padding: 15px;
-          overflow-x: auto;
-        }
-
-        .code-preview {
-          background: #212529;
-          color: #f8f9fa;
-          padding: 10px;
-          border-radius: 6px;
-          font-family: monospace;
-          font-size: 13px;
-          white-space: pre-wrap;
-          word-break: break-all;
-        }
-
-        .extension-summary {
-          flex: 1;
-          background: #fff;
-          border: 1px solid #dee2e6;
-          border-radius: 10px;
-          padding: 20px;
-          box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        }
-
-        .extension-summary h3 {
-          margin: 0 0 10px;
-          color: #007bff;
-          font-size: 18px;
-        }
-
-        .summary-details {
-          margin-top: 10px;
-          font-size: 14px;
-          color: #6c757d;
-        }
-
-        .detail-item {
-          display: block;
-          margin-bottom: 4px;
-        }
-
-        .form-actions {
-          margin-top: 30px;
-          display: flex;
-          justify-content: space-between;
-          flex-wrap: wrap;
-          gap: 10px;
-          border-top: 1px solid #e0e0e0;
-          padding-top: 20px;
-        }
-
-        .btn {
-          padding: 10px 20px;
-          font-size: 14px;
-          border-radius: 8px;
-          cursor: pointer;
-          border: none;
-          transition: background 0.2s, transform 0.1s;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-
-        .btn:hover:not(:disabled) {
-          transform: translateY(-1px);
-          box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        }
-
-        .btn-primary {
-          background: #007bff;
-          color: white;
-        }
-
-        .btn-primary:hover {
-          background: #0056b3;
-        }
-
-        .btn-secondary {
-          background: #6c757d;
-          color: white;
-        }
-
-        .btn-secondary:hover {
-          background: #495057;
-        }
-
-        .btn-success {
-          background: #28a745;
-          color: white;
-        }
-
-        .btn-success:hover {
-          background: #1e7e34;
-        }
-
-        .btn-outline {
-          background: transparent;
-          color: #343a40;
-          border: 1px solid #ced4da;
-        }
-
-        .btn-outline:hover {
-          background: #e9ecef;
-          color: #007bff;
-          border-color: #007bff;
-        }
-
-        .btn:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-          box-shadow: none;
-          transform: none;
-        }
-
-        /* Chatbot Specific Styles (refined) */
-        .chatbot-section {
-          border: 1px solid #e0e0e0;
-          border-radius: 8px;
-          padding: 15px;
-          background-color: #ffffff;
-          box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-          display: flex;
-          flex-direction: column;
-          height: 500px;
-          margin-top: 25px;
-        }
-
-        .chat-history {
-          flex-grow: 1;
-          overflow-y: auto;
-          margin-bottom: 15px;
-          padding: 10px;
-          background-color: #f9f9f9;
-          border-radius: 5px;
-          border: 1px solid #ececec;
-          display: flex;
-          flex-direction: column;
-        }
-
-        .chat-message {
-          margin-bottom: 10px;
-          padding: 8px 12px;
-          border-radius: 15px;
-          max-width: 85%;
-          word-wrap: break-word;
-          font-size: 14px;
-          line-height: 1.4;
-        }
-
-        .chat-message.user {
-          align-self: flex-end;
-          background-color: #e1ffc7;
-          text-align: right;
-          margin-left: auto;
-          margin-right: 0;
-        }
-
-        .chat-message.bot {
-          align-self: flex-start;
-          background-color: #e9ecef;
-          text-align: left;
-          margin-left: 0;
-          margin-right: auto;
-        }
-
-        .chat-input-area {
-          display: flex;
-          gap: 10px;
-        }
-
-        .chat-input-area textarea {
-          flex-grow: 1;
-          padding: 10px;
-          border-radius: 6px;
-          border: 1px solid #ced4da;
-          resize: vertical;
-          min-height: 40px;
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-          font-size: 15px;
-        }
-
-        .chat-input-area button {
-          padding: 10px 20px;
-          border-radius: 6px;
-          border: none;
-          background-color: #007bff;
-          color: white;
-          cursor: pointer;
-          transition: background-color 0.2s;
-        }
-
-        .chat-input-area button:hover:not(:disabled) {
-          background-color: #0056b3;
-        }
-
-        .chat-input-area button:disabled {
-          background-color: #e0e0e0;
-          color: #a0a0a0;
-          cursor: not-allowed;
-          opacity: 0.7;
-        }
-
-        @media (max-width: 768px) {
-          .create-extension-container {
-            padding: 20px;
-          }
-          .create-extension-wrapper {
-            padding: 20px;
-          }
-          .progress-steps {
-            flex-wrap: wrap;
-            justify-content: center;
-          }
-          .step {
-            flex: none;
-            width: 48%;
-            margin-bottom: 10px;
-          }
-          .step-label {
-            margin-top: 5px;
-          }
-          .form-row {
-            flex-direction: column;
-          }
-          .generated-preview {
-            flex-direction: column;
-          }
-          .form-actions {
-            flex-direction: column;
-            align-items: stretch;
-          }
-          .btn {
-            width: 100%;
-          }
-          .chatbot-section {
-            height: 450px;
-          }
-        }
-      `}</style>
-
       <div className="create-extension-wrapper">
         {/* Progress Bar for steps */}
         <div className="progress-bar">
@@ -943,12 +502,12 @@ function CreateExtension() {
                     }}
                     placeholder={isChatConversationComplete ? "Conversation complete. Click Generate Extension or ask another question!" : "Type your answer here..."}
                     rows="1"
-                    disabled={isChatLoading || isChatConversationComplete}
+                    disabled={isChatLoading} // Only disable if loading, not if complete
                   ></textarea>
                   <button
                     className="btn btn-primary"
                     onClick={handleSendButtonClick}
-                    disabled={isChatLoading || isChatConversationComplete}
+                    disabled={isChatLoading} // Only disable if loading, not if complete
                   >
                     {isChatLoading ? 'Sending...' : 'Send'}
                   </button>
@@ -1037,7 +596,8 @@ function CreateExtension() {
             <button 
               className="btn btn-success"
               onClick={generateExtension}
-              disabled={!isChatConversationComplete || isChatLoading} // Disable until conversation is complete
+              // The button is now always enabled in step 4, only disabled if API is actively loading
+              disabled={isChatLoading} 
             >
               Generate Extension
             </button>
@@ -1062,7 +622,6 @@ function CreateExtension() {
                     version: "1.0.0",
                     type: "popup",
                     permissions: [],
-                    icon: "",
                     author: ""
                   });
                   setChatMessages([]);
