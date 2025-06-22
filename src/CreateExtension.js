@@ -332,7 +332,7 @@ function CreateExtension() {
           {activeStep === 1 && (
             <div className="step-content">
               <h2>Basic Information</h2>
-              <p className="step-description">Let's start with the basics of your extension</p>
+              <p className="step-description">Let's start with the basics of your extension SMKNRGbilbshskhkhshiusr</p>
               
               <div className="form-group">
                 <label>Extension Name *</label>
