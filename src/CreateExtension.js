@@ -204,8 +204,14 @@ function CreateExtension() {
         // Attempt to parse the JSON response from Gemini
         const jsonString = result.candidates[0].content.parts[0].text;
         let jsonResponse;
+        let manifestObj;
         try {
             jsonResponse = JSON.parse(jsonString);
+            manifestObj = JSON.parse(jsonResponse.manifest);
+            if (!formData.icon && manifestObj.icons) {
+              delete manifestObj.icons;
+            }
+            jsonResponse.manifest = JSON.stringify(manifestObj, null, 2);
         } catch (parseError) {
             console.error("Failed to parse JSON from Gemini response:", parseError);
             setChatMessages(prev => [...prev, { sender: "bot", text: "Gemini returned code, but it's not in the expected JSON format. Please try refining your last input or generate again." }]);
