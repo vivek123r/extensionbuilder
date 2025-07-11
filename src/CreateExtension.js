@@ -1,6 +1,40 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import "./CreateExtension.css"; // Import the external CSS file
+import JSZip from "jszip"; // Import JSZip for creating zip files
+
+// Modal component for installation instructions
+const InstallationModal = ({ isOpen, onClose, instructions }) => {
+  if (!isOpen) return null;
+  
+  return (
+    <div className="modal-overlay">
+      <div className="modal-content">
+        <div className="modal-header">
+          <h3>Extension Installation Instructions</h3>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body">
+          <div className="installation-steps">
+            <p>The extension has been packaged as a ZIP file. To install directly:</p>
+            <ol>
+              <li>Unzip the downloaded file to a folder</li>
+              <li>Open <code>chrome://extensions</code> in your browser</li>
+              <li>Enable <strong>Developer mode</strong> (toggle in the top-right)</li>
+              <li>Click <strong>Load unpacked</strong> and select the unzipped folder</li>
+            </ol>
+            <div className="note">
+              <p><strong>Note:</strong> For a permanent installation, you would need to publish to the Chrome Web Store.</p>
+            </div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-primary" onClick={onClose}>Got it!</button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 function CreateExtension() {
   const navigate = useNavigate();
@@ -21,6 +55,7 @@ function CreateExtension() {
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isChatConversationComplete, setIsChatConversationComplete] = useState(false); // Flag when chat is done
+  const [isModalOpen, setIsModalOpen] = useState(false); // State for the installation modal
 
   const chatHistoryRef = useRef(null); // Ref for scrolling chat history
 
@@ -208,9 +243,21 @@ function CreateExtension() {
         try {
             jsonResponse = JSON.parse(jsonString);
             manifestObj = JSON.parse(jsonResponse.manifest);
-            if (!formData.icon && manifestObj.icons) {
+            
+            // Remove any icons or default_icon entries from the manifest
+            if (manifestObj.icons) {
               delete manifestObj.icons;
             }
+            
+            // Also check for default_icon in browser_action or action
+            if (manifestObj.browser_action && manifestObj.browser_action.default_icon) {
+              delete manifestObj.browser_action.default_icon;
+            }
+            
+            if (manifestObj.action && manifestObj.action.default_icon) {
+              delete manifestObj.action.default_icon;
+            }
+            
             jsonResponse.manifest = JSON.stringify(manifestObj, null, 2);
         } catch (parseError) {
             console.error("Failed to parse JSON from Gemini response:", parseError);
@@ -248,43 +295,30 @@ function CreateExtension() {
     requestExtensionCodeGeneration();
   };
 
-  // Function to trigger file downloads
-  const downloadFiles = () => {
-    // Create and download manifest.json
-    const manifestBlob = new Blob([generatedCode.manifest], { type: 'application/json' });
-    const manifestUrl = URL.createObjectURL(manifestBlob);
-    const manifestLink = document.createElement('a');
-    manifestLink.href = manifestUrl;
-    manifestLink.download = 'manifest.json';
-    manifestLink.click();
-
-    // Create and download popup.html
-    const popupBlob = new Blob([generatedCode.popup], { type: 'text/html' });
-    const popupUrl = URL.createObjectURL(popupBlob);
-    const popupLink = document.createElement('a');
-    popupLink.href = popupUrl;
-    popupLink.download = 'popup.html';
-    popupLink.click();
-
-    // Create and download popup.js
-    const scriptBlob = new Blob([generatedCode.script], { type: 'text/javascript' });
-    const scriptUrl = URL.createObjectURL(scriptBlob);
-    const scriptLink = document.createElement('a');
-    scriptLink.href = scriptUrl;
-    scriptLink.download = 'popup.js';
-    scriptLink.click();
-
-    // If content script exists, download it
+  // Function to trigger file downloads as a ZIP
+  const downloadFiles = async () => {
+    const zip = new JSZip();
+    // Add manifest.json
+    zip.file('manifest.json', generatedCode.manifest);
+    // Add popup.html
+    zip.file('popup.html', generatedCode.popup);
+    // Add popup.js
+    zip.file('popup.js', generatedCode.script);
+    // Add content-script.js if it exists
     if (generatedCode.contentScript) {
-      const contentScriptBlob = new Blob([generatedCode.contentScript], { type: 'text/javascript' });
-      const contentScriptUrl = URL.createObjectURL(contentScriptBlob);
-      const contentScriptLink = document.createElement('a');
-      contentScriptLink.href = contentScriptUrl;
-      contentScriptLink.download = 'content-script.js';
-      contentScriptLink.click();
+      zip.file('content-script.js', generatedCode.contentScript);
     }
+    // Generate the ZIP and trigger download
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const zipUrl = URL.createObjectURL(zipBlob);
+    const zipLink = document.createElement('a');
+    zipLink.href = zipUrl;
+    zipLink.download = `${formData.name || 'extension'}-files.zip`;
+    zipLink.click();
+    // Optionally, revoke the object URL after download
+    setTimeout(() => URL.revokeObjectURL(zipUrl), 1000);
   };
-
+  
   // Array of available permissions with descriptions
   const availablePermissions = [
     { id: 'activeTab', label: 'Access Active Tab', desc: 'Read and modify the current tab' },
@@ -526,7 +560,7 @@ function CreateExtension() {
           {activeStep === 5 && generatedCode && (
             <div className="step-content">
               <h2>Extension Generated!</h2>
-              <p className="step-description">Your extension files are ready to download</p>
+              <p className="step-description">Your extension files are ready to download or install directly</p>
               
               <div className="generated-preview">
                 <div className="file-preview">
@@ -559,9 +593,6 @@ function CreateExtension() {
                     <span className="detail-item">Type: {formData.type}</span>
                     <span className="detail-item">Permissions: {formData.permissions.length}</span>
                   </div>
-                  {/* Since details are now dynamically inferred by Gemini,
-                      we can't list them explicitly here unless Gemini also
-                      provides a summary. For now, rely on generated code. */}
                   <h4 style={{marginTop: '20px', marginBottom: '10px', color: '#007bff'}}>Generated based on your input.</h4>
                 </div>
               </div>
@@ -647,6 +678,12 @@ function CreateExtension() {
           </button>
         </div>
       </div>
+      
+      {/* Installation Instructions Modal */}
+      <InstallationModal 
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+      />
     </div>
   );
 }
