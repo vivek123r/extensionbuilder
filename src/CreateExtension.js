@@ -117,8 +117,8 @@ function CreateExtension() {
   const sendPromptToGemini = async (history, type = 'chat') => {
     setIsChatLoading(true);
 
-    const apiKey = "AIzaSyBq23mkvFSmfqecjNgkfq9rA8V34nrE6Ng"; // Canvas environment will automatically provide API key for gemini-2.0-flash
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`; // Switched to 2.0-flash for automatic key handling
+    const apiKey = "AIzaSyBq23mkvFSmfqecjNgkfq9rA8V34nrE6Ng"; // Canvas environment will automatically provide API key for gemini-2.5-pro
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`; // Switched to 2.5-pro for automatic key handling
 
     const payload = { contents: history };
 
@@ -209,9 +209,10 @@ function CreateExtension() {
     "manifest": (string content of manifest.json)
     "popupHtml": (string content of popup.html)
     "popupJs": (string content of popup.js)
+    "popupCss": (string content of popup.css)
     "contentScript": (string content of content-script.js, or an empty string if no content script is required based on the conversation history).
 
-    **CRITICAL FORMATTING RULE:** Ensure all string content for the code files ("manifest", "popupHtml", "popupJs", "contentScript") is well-formatted with proper line breaks and indentation to enhance readability and maintainability. For JSON, use 2-space indentation. For HTML and JavaScript, use standard indentation (e.g., 2 or 4 spaces).`;
+    **CRITICAL FORMATTING RULE:** Ensure all string content for the code files ("manifest", "popupHtml", "popupJs","popupCss","contentScript") is well-formatted with proper line breaks and indentation to enhance readability and maintainability. For JSON, use 2-space indentation. For HTML and JavaScript, use standard indentation (e.g., 2 or 4 spaces).`;
 
     const payload = {
       contents: [{ role: "user", parts: [{ text: generationPrompt }] }],
@@ -269,6 +270,7 @@ function CreateExtension() {
         setGeneratedCode({
           manifest: jsonResponse.manifest,
           popup: jsonResponse.popupHtml,
+          popupCss: jsonResponse.popupCss,
           script: jsonResponse.popupJs,
           // Only include contentScript if it's provided and not empty
           contentScript: jsonResponse.contentScript && jsonResponse.contentScript.trim() !== '' ? jsonResponse.contentScript : null
@@ -304,6 +306,8 @@ function CreateExtension() {
     zip.file('popup.html', generatedCode.popup);
     // Add popup.js
     zip.file('popup.js', generatedCode.script);
+    // Add popup.css
+    zip.file('popup.css', generatedCode.popupCss || '/* No CSS generated */');
     // Add content-script.js if it exists
     if (generatedCode.contentScript) {
       zip.file('content-script.js', generatedCode.contentScript);
@@ -576,6 +580,10 @@ function CreateExtension() {
                 <div className="file-preview">
                   <h4>📄 popup.js</h4>
                   <pre className="code-preview">{generatedCode.script}</pre>
+                </div>
+                <div className="file-preview">
+                  <h4>📄 popup.css</h4>
+                  <pre className="code-preview">{generatedCode.popupCss}</pre>
                 </div>
 
                 {generatedCode.contentScript && (
