@@ -80,8 +80,8 @@ const CreateExtensionNew = () => {
     setIsAiLoading(true);
     setError(null);
 
-    const apiKey = "AIzaSyBq23mkvFSmfqecjNgkfq9rA8V34nrE6Ng";
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    const apiKey = "AIzaSyD5MMVUdnGmKh-oIQxphmVE3Jq5eVY7G6Y";
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
     const prompt = `Based on the following extension description, generate a comprehensive list of specific tasks and features that this browser extension should include.
 
@@ -119,26 +119,55 @@ Example format:
 
 Make the suggestions specific, actionable, and relevant to the described extension type.`;
 
-    try {
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.7,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 2048,
-          }
-        }),
-      });
+    // Add retry logic
+    const maxRetries = 2;
+    let retryCount = 0;
+    
+    while (retryCount <= maxRetries) {
+      try {
+        console.log(`AI Description attempt ${retryCount + 1}/${maxRetries + 1}`);
+        
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.7,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 2048,
+            }
+          }),
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API Error:', response.status, errorText);
-        throw new Error(`API Error: ${response.status}`);
-      }
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`AI Description API Error (Attempt ${retryCount + 1}/${maxRetries + 1}):`, response.status, errorText);
+          
+          // For 503 or 429 errors, we should retry
+          if (response.status === 503 || response.status === 429) {
+            retryCount++;
+            if (retryCount > maxRetries) {
+              throw new Error(`API Error: ${response.status}`);
+            }
+            
+            // Exponential backoff: wait longer between each retry
+            const delay = Math.pow(2, retryCount) * 1000; // 2s, 4s
+            console.log(`Server busy (${response.status}). Retrying in ${delay/1000}s...`);
+            
+            setError({
+              type: 'warning',
+              message: `Server busy. Retrying in ${delay/1000}s... (${retryCount}/${maxRetries + 1})`
+            });
+            
+            // Wait before retrying
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+          
+          throw new Error(`API Error: ${response.status}`);
+        }
 
       const data = await response.json();
       console.log('API Response:', data);
@@ -167,13 +196,35 @@ Make the suggestions specific, actionable, and relevant to the described extensi
       setError({ type: 'success', message: '✅ AI suggestions added successfully!' });
       setTimeout(() => setError(null), 3000);
       
+      // Success - exit the retry loop
+      break;
+      
     } catch (error) {
-      console.error('AI Description Error:', error);
-      setError({ type: 'error', message: '❌ Failed to get AI suggestions. Please try again.' });
-      setTimeout(() => setError(null), 5000);
-    } finally {
-      setIsAiLoading(false);
+      console.error(`AI Description Error (Attempt ${retryCount + 1}/${maxRetries + 1}):`, error);
+      
+      retryCount++;
+      
+      if (retryCount > maxRetries) {
+        setError({ type: 'error', message: '❌ Failed to get AI suggestions: ' + error.message });
+        setTimeout(() => setError(null), 5000);
+        break;
+      }
+      
+      // Exponential backoff for any error
+      const delay = Math.pow(2, retryCount) * 1000;
+      console.log(`Error occurred. Retrying in ${delay/1000}s...`);
+      
+      setError({
+        type: 'warning',
+        message: `Error: ${error.message}. Retrying in ${delay/1000}s... (${retryCount}/${maxRetries + 1})`
+      });
+      
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
+    }
+    
+    setIsAiLoading(false);
   };
 
   const generateExtension = async () => {
@@ -182,23 +233,32 @@ Make the suggestions specific, actionable, and relevant to the described extensi
 
     try {
       const prompt = createDetailedPrompt();
+      console.log('Sending prompt to API...');
       const response = await callGeminiAPI(prompt);
+      console.log('API response received:', response);
       
       if (response && response.code) {
+        // Validate that key components exist
+        if (!response.code.manifest) {
+          throw new Error('Generated code is missing manifest.json');
+        }
         setGeneratedCode(response.code);
         setActiveStep(4);
       } else {
         throw new Error('Invalid response from API');
       }
     } catch (err) {
-      setError(err.message || 'Failed to generate extension');
+      setError({ 
+        type: 'error',
+        message: err.message || 'Failed to generate extension'
+      });
     } finally {
       setIsGenerating(false);
     }
   };
 
   const createDetailedPrompt = () => {
-    return `Create a complete ${formData.targetBrowser} browser extension with the following specifications:
+    return `Design a professional-grade ${formData.targetBrowser} browser extension with modern UI and robust functionality based on these specifications:
 
 **Extension Details:**
 - Name: ${formData.name}
@@ -209,113 +269,239 @@ Make the suggestions specific, actionable, and relevant to the described extensi
 - Target Browser: ${formData.targetBrowser}
 - Permissions: ${formData.permissions.join(', ') || 'none'}
 
-**Requirements:**
-1. Generate a complete, production-ready extension
-2. Include proper error handling and validation
-3. Use modern JavaScript (ES6+) features
-4. Add comprehensive comments explaining the code
+**Design & Development Requirements:**
+1. Create a polished, visually appealing user interface with modern design standards
+2. Implement comprehensive error handling and validation
+3. Use modern JavaScript (ES6+) and CSS features
+4. Include detailed comments explaining key functionality
 5. Follow ${formData.targetBrowser} extension best practices
-6. Include proper CSS styling for UI components
-7. Implement proper event listeners and cleanup
-8. Make the extension functional with real features
-9. Add proper manifest structure for ${formData.targetBrowser}
+6. Create responsive layouts that work well across different screen sizes
+7. Implement proper state management and performance optimization
+8. Use consistent design patterns and intuitive UX principles
+9. Include dark mode support where appropriate
+10. Incorporate smooth animations and transitions for better UX
 
-**Return Format:**
-Please return the code in the following JSON structure:
+**UI Requirements:**
+1. Use a modern UI framework approach (Material Design, clean minimalist, etc.)
+2. Include proper spacing, typography hierarchy, and visual balance
+3. Design attractive buttons, inputs, and interactive elements
+4. Use appropriate color scheme with good contrast
+5. Implement responsive layouts that adapt to different sizes
+6. Add subtle animations for improved user experience
+
+**Response Format:**
+Please provide the complete code in this JSON structure:
 {
-  "manifest": "// Complete manifest.json content as string",
+  "manifest": "// Example manifest.json content as string",
   "popup": {
-    "html": "// Complete popup.html content as string",
-    "css": "// Complete popup.css content as string", 
-    "js": "// Complete popup.js content as string"
+    "html": "// Example popup.html content as string",
+    "css": "// Example popup.css content as string", 
+    "js": "// Example popup.js content as string"
   },
   "content": {
-    "js": "// Content script content as string if applicable",
-    "css": "// Content styles content as string if applicable"
+    "js": "// Example content script as string if applicable",
+    "css": "// Example content styles as string if applicable"
   },
   "background": {
-    "js": "// Background script content as string if applicable"
+    "js": "// Example background script as string if applicable"
   },
   "options": {
-    "html": "// Options page HTML content as string if applicable",
-    "js": "// Options page JS content as string if applicable",
-    "css": "// Options page CSS content as string if applicable"
+    "html": "// Example options page HTML as string if applicable",
+    "js": "// Example options page JS as string if applicable",
+    "css": "// Example options page CSS as string if applicable"
   }
 }
 
-Make sure to:
-- Create a manifest.json that follows the latest Chrome Extension Manifest V3 format
-- Remove any icon references since no icon was provided
-- Include actual functionality that works
-- Add proper error handling
-- Use clean, readable code with comments
-- Make the UI responsive and user-friendly`;
+Technical Notes:
+- Use Manifest V3 format for Chrome extensions
+- Include proper error handling and input validation
+- Ensure code is well-structured and maintainable
+- Optimize for performance and responsiveness
+- Ensure accessibility compliance where possible
+- Focus on creating a polished, professional-looking extension`;
   };
 
   const callGeminiAPI = async (prompt) => {
-    const apiKey = "AIzaSyBq23mkvFSmfqecjNgkfq9rA8V34nrE6Ng";
+    const apiKey = "AIzaSyD5MMVUdnGmKh-oIQxphmVE3Jq5eVY7G6Y";
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`;
 
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.7,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 8192,
-        }
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('API Error:', response.status, errorText);
-      throw new Error(`API Error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    console.log('Full API Response:', data);
-    
-    // Better response parsing with multiple fallbacks
+    // Add retry logic
+    const maxRetries = 3;
+    let retryCount = 0;
+    let parsedCode = null;
     let responseText = null;
+
+    // Add explicit instructions for JSON formatting
+    const enhancedPrompt = `${prompt}
     
-    if (data.candidates && data.candidates[0]) {
-      const candidate = data.candidates[0];
-      if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {
-        responseText = candidate.content.parts[0].text;
+IMPORTANT FORMATTING INSTRUCTIONS: 
+1. Format your response as valid JSON that follows the exact structure provided
+2. Make sure all quotes and special characters in strings are properly escaped
+3. Create a polished, visually appealing UI with modern CSS including:
+   - Attractive color schemes
+   - Proper spacing and layout
+   - Interactive elements with hover effects
+   - Clean typography and visual hierarchy
+4. Return the JSON directly within triple backtick code block markers
+5. Format your response exactly like this:
+\`\`\`json
+{
+  "manifest": "{\\"manifest_version\\": 3, \\"name\\": \\"Example\\", ...}",
+  "popup": {
+    "html": "<!DOCTYPE html>\\n<html>\\n  <head>...</head>\\n  <body>...</body>\\n</html>",
+    "css": "/* Modern, attractive CSS with proper styling */\\nbody {\\n  font-family: 'Segoe UI', system-ui, sans-serif;\\n  ...\\n}",
+    "js": "// Well-structured JavaScript with proper error handling\\ndocument.addEventListener('DOMContentLoaded', () => {\\n  ...\\n});"
+  },
+  // other files as needed
+}
+\`\`\``;
+
+    while (retryCount <= maxRetries) {
+      try {
+        console.log(`API attempt ${retryCount + 1}/${maxRetries + 1}`);
+        
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: enhancedPrompt }] }],
+            generationConfig: {
+              temperature: 0.4, // Slightly higher temperature for more creative UI design
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 16384, // Increased token limit for more detailed output
+            }
+          })
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`API Error (Attempt ${retryCount + 1}/${maxRetries + 1}):`, response.status, errorText);
+          
+          // For 503 or 429 errors, we should retry
+          if (response.status === 503 || response.status === 429) {
+            retryCount++;
+            // Exponential backoff: wait longer between each retry
+            const delay = Math.pow(2, retryCount) * 1000; // 2s, 4s, 8s
+            console.log(`Server busy (${response.status}). Retrying in ${delay/1000}s...`);
+            
+            // Show retry message in UI
+            setError({ 
+              type: 'warning', 
+              message: `Server busy. Retrying in ${delay/1000}s... (${retryCount}/${maxRetries + 1})`
+            });
+            
+            // Wait before retrying
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+          
+          throw new Error(`API Error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('Full API Response:', data);
+        
+        // Extract response text
+        if (data.candidates && data.candidates[0]) {
+          const candidate = data.candidates[0];
+          if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {
+            responseText = candidate.content.parts[0].text;
+          }
+        }
+        
+        if (!responseText) {
+          console.error('No response content found in:', data);
+          throw new Error('No response content received from AI');
+        }
+
+        console.log('Response Text:', responseText);
+        
+        // Try multiple extraction methods to find the JSON
+        let jsonString = null;
+        // Reset parsedCode for this attempt
+        parsedCode = null;
+        
+        // Method 1: Extract from code blocks with ```json markers
+        const codeBlockMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
+        if (codeBlockMatch && codeBlockMatch[1]) {
+          jsonString = codeBlockMatch[1].trim();
+          console.log('Extracted JSON from code block');
+          
+          try {
+            parsedCode = JSON.parse(jsonString);
+            console.log('Successfully parsed JSON from code block');
+            break; // Success - exit the retry loop
+          } catch (e) {
+            console.error('Failed to parse JSON from code block:', e);
+            // Continue to next extraction method
+          }
+        }
+        
+        // Method 2: Look for the largest JSON object in the response
+        const jsonObjectMatch = responseText.match(/(\{[\s\S]*\})/);
+        if (jsonObjectMatch && jsonObjectMatch[1]) {
+          jsonString = jsonObjectMatch[1].trim();
+          console.log('Extracted JSON object pattern');
+          
+          try {
+            parsedCode = JSON.parse(jsonString);
+            console.log('Successfully parsed JSON object');
+            break; // Success - exit the retry loop
+          } catch (e) {
+            console.error('Failed to parse JSON object:', e);
+          }
+        }
+        
+        // If we've tried all methods and still failed
+        if (!parsedCode) {
+          retryCount++;
+          if (retryCount > maxRetries) {
+            console.error('All JSON parsing methods failed on final attempt');
+            throw new Error('Failed to parse API response - invalid JSON');
+          }
+          
+          const delay = Math.pow(2, retryCount) * 1000;
+          console.log(`JSON parsing failed. Retrying in ${delay/1000}s...`);
+          
+          setError({
+            type: 'warning',
+            message: `Response format issue. Retrying in ${delay/1000}s... (${retryCount}/${maxRetries + 1})`
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+      } catch (error) {
+        retryCount++;
+        
+        if (retryCount > maxRetries) {
+          console.error('Max retries reached:', error);
+          throw error;
+        }
+        
+        // Exponential backoff for any error
+        const delay = Math.pow(2, retryCount) * 1000;
+        console.log(`Error occurred. Retrying in ${delay/1000}s... (${retryCount}/${maxRetries + 1})`);
+        
+        // Show retry message in UI
+        setError({
+          type: 'warning',
+          message: `Error: ${error.message}. Retrying in ${delay/1000}s... (${retryCount}/${maxRetries + 1})`
+        });
+        
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
     
-    if (!responseText) {
-      console.error('No response content found in:', data);
-      throw new Error('No response content received from AI');
+    // Check if parsedCode is null
+    if (!parsedCode) {
+      throw new Error('Unable to generate code. Please try again.');
     }
-
-    console.log('Response Text:', responseText);
-
-    // Extract JSON from response with better regex
-    const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/) || 
-                      responseText.match(/\{[\s\S]*\}/);
     
-    if (!jsonMatch) {
-      console.error('No JSON found in response:', responseText);
-      throw new Error('Failed to parse API response - no JSON found');
-    }
-
-    let parsedCode;
-    try {
-      parsedCode = JSON.parse(jsonMatch[1] || jsonMatch[0]);
-    } catch (parseError) {
-      console.error('JSON Parse Error:', parseError);
-      console.error('Attempted to parse:', jsonMatch[1] || jsonMatch[0]);
-      throw new Error('Failed to parse API response - invalid JSON');
-    }
-      
     // Remove icons from manifest if no icon provided
-    if (!formData.icon && parsedCode.manifest) {
+    if (!formData.icon && parsedCode && parsedCode.manifest) {
       try {
         const manifestObj = JSON.parse(parsedCode.manifest);
         if (manifestObj.icons) delete manifestObj.icons;
@@ -326,14 +512,21 @@ Make sure to:
         console.warn('Could not parse manifest to remove icons');
       }
     }
-      
+    
     return { code: parsedCode };
   };
 
   const downloadExtension = async () => {
-    if (!generatedCode) return;
+    if (!generatedCode) {
+      setError({
+        type: 'error',
+        message: 'No extension code available for download. Please generate the extension first.'
+      });
+      return;
+    }
 
-    const zip = new JSZip();
+    try {
+      const zip = new JSZip();
     
     // Add manifest
     if (generatedCode.manifest) {
@@ -365,8 +558,7 @@ Make sure to:
       if (generatedCode.options.css) zip.file('options.css', generatedCode.options.css);
     }
 
-    // Generate ZIP file and download
-    try {
+      // Generate ZIP file and download
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       const url = URL.createObjectURL(zipBlob);
       const a = document.createElement("a");
@@ -378,7 +570,10 @@ Make sure to:
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error creating ZIP file:', error);
-      alert('Error creating ZIP file. Please try again.');
+      setError({
+        type: 'error',
+        message: 'Error creating ZIP file. Please try again.'
+      });
     }
   };
 
@@ -430,8 +625,8 @@ Make sure to:
           
           {/* Success/Error Messages */}
           {error && (
-            <div className={`ai-message ${error.type}`}>
-              {error.message}
+            <div className={`ai-message ${error.type || 'error'}`}>
+              {typeof error === 'string' ? error : error.message}
             </div>
           )}
         </div>
@@ -558,11 +753,13 @@ Make sure to:
             )}
             
             {error && (
-              <div className="error-message">
-                <p>❌ {error}</p>
-                <button className="btn btn-secondary" onClick={generateExtension}>
-                  Try Again
-                </button>
+              <div className={`error-message ${error.type === 'warning' ? 'warning' : error.type === 'success' ? 'success' : 'error'}`}>
+                <p>{typeof error === 'string' ? error : error.message}</p>
+                {(!error.type || error.type === 'error') && (
+                  <button className="btn btn-secondary" onClick={generateExtension}>
+                    Try Again
+                  </button>
+                )}
               </div>
             )}
           </div>
