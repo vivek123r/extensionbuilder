@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import JSZip from 'jszip';
 import './CreateExtensionNew.css';
+import EmberBackground from './components/EmberBackground';
 
 const CreateExtensionNew = () => {
   const navigate = useNavigate();
@@ -80,8 +81,8 @@ const CreateExtensionNew = () => {
     setIsAiLoading(true);
     setError(null);
 
-    const apiKey = "AIzaSyD5MMVUdnGmKh-oIQxphmVE3Jq5eVY7G6Y";
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const apiKey = "AIzaSyBPZyraCHGM0kxtr_D2wmqwGwJ9D7MaA3Y";
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
     const prompt = `Based on the following extension description, generate a comprehensive list of specific tasks and features that this browser extension should include.
 
@@ -322,8 +323,8 @@ Technical Notes:
   };
 
   const callGeminiAPI = async (prompt) => {
-    const apiKey = "AIzaSyD5MMVUdnGmKh-oIQxphmVE3Jq5eVY7G6Y";
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`;
+    const apiKey = "AIzaSyBPZyraCHGM0kxtr_D2wmqwGwJ9D7MaA3Y";
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
     // Add retry logic
     const maxRetries = 3;
@@ -865,8 +866,9 @@ IMPORTANT FORMATTING INSTRUCTIONS:
 
   return (
     <div className="create-extension">
+      <EmberBackground />
       <div className="header">
-        <h1>Create Browser Extension</h1>
+        <h1>Forge New Extension</h1>
         <div className="progress-bar">
           {[1, 2, 3, 4].map(step => (
             <div
