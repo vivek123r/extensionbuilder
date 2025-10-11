@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import JSZip from 'jszip';
 import './CreateExtensionNew.css';
-import EmberBackground from './components/EmberBackground';
+import HyperspeedBackground from './components/HyperspeedBackground';
 
 const CreateExtensionNew = () => {
   const navigate = useNavigate();
@@ -866,9 +866,9 @@ IMPORTANT FORMATTING INSTRUCTIONS:
 
   return (
     <div className="create-extension">
-      <EmberBackground />
+      <HyperspeedBackground />
+      <div id="lights"></div>
       <div className="header">
-        <h1>Forge New Extension</h1>
         <div className="progress-bar">
           {[1, 2, 3, 4].map(step => (
             <div

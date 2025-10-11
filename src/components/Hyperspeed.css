@@ -1,0 +1,73 @@
+#lights {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: -10;
+  background-color: transparent;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+#lights canvas {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  background: #000000;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* Make sure content elements remain visible over the hyperspeed effect */
+.content {
+  position: relative;
+  z-index: 1;
+}
+
+.header {
+  position: relative;
+  z-index: 2;
+}
+
+.form-group input,
+.form-group textarea,
+.form-group select {
+  position: relative;
+  z-index: 2;
+  background: rgba(18, 18, 18, 0.8) !important; 
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+.step {
+  position: relative;
+  z-index: 2;
+}
+
+.btn {
+  position: relative;
+  z-index: 2;
+}
+
+/* Ensure all UI elements remain visible */
+.create-extension {
+  position: relative;
+  z-index: 1;
+}
+
+.progress-bar {
+  z-index: 2;
+  position: relative;
+}
+
+/* Enhance text readability over the hyperspeed background */
+.create-extension h1,
+.create-extension h2,
+.create-extension h3,
+.create-extension label {
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
+}
