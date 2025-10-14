@@ -4,6 +4,7 @@ import { BloomEffect, EffectComposer, EffectPass, RenderPass, SMAAEffect, SMAAPr
 import './Hyperspeed.css';
 
 const HyperspeedBackground = ({
+  stepTransition = false,
   effectOptions = {
     onSpeedUp: () => {},
     onSlowDown: () => {},
@@ -44,8 +45,39 @@ const HyperspeedBackground = ({
 }) => {
   const hyperspeed = useRef(null);
   const appRef = useRef(null);
+  const lightsRef = useRef(null);
+
+  // Add effect for zoom transition when step changes
+  useEffect(() => {
+    if (stepTransition) {
+      const lightsElement = document.getElementById('lights');
+      if (lightsElement) {
+        // Add zoom transition class
+        lightsElement.classList.add('zoom-transition');
+        
+        // Apply hyperspeed transition without blur
+        document.body.classList.add('hyperspeed-transition-noblur');
+        
+        // Add camera shake to the lights element instead of appRef
+        lightsElement.classList.add('camera-shake');
+        
+        // Trigger speed-up effect (if the hyperspeed effect supports it)
+        if (typeof effectOptions.onSpeedUp === 'function') {
+          effectOptions.onSpeedUp();
+        }
+        
+        // Remove all transition effects after animation completes
+        setTimeout(() => {
+          lightsElement.classList.remove('zoom-transition');
+          lightsElement.classList.remove('camera-shake');
+          document.body.classList.remove('hyperspeed-transition-noblur');
+        }, 1500);
+      }
+    }
+  }, [stepTransition, effectOptions]);
 
   useEffect(() => {
+    // Clean up any previous instance
     if (appRef.current) {
       appRef.current.dispose();
       const container = document.getElementById('lights');
@@ -1101,7 +1133,21 @@ const HyperspeedBackground = ({
 
     (function () {
       const container = document.getElementById('lights');
-      if (!container) return;
+      if (!container) {
+        // If there's no 'lights' container, we'll wait for our rendered div
+        setTimeout(() => {
+          const newContainer = document.getElementById('lights');
+          if (newContainer) {
+            const options = { ...effectOptions };
+            options.distortion = distortions[options.distortion];
+            
+            const myApp = new App(newContainer, options);
+            appRef.current = myApp;
+            myApp.loadAssets().then(myApp.init);
+          }
+        }, 100);
+        return;
+      }
       
       const options = { ...effectOptions };
       options.distortion = distortions[options.distortion];
@@ -1118,7 +1164,8 @@ const HyperspeedBackground = ({
     };
   }, [effectOptions]);
 
-  return null;
+  // Return the container div for the effect
+  return <div id="lights"></div>;
 };
 
 export default HyperspeedBackground;

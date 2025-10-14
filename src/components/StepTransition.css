@@ -1,0 +1,106 @@
+/* Step transition specific effects */
+.transition-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: linear-gradient(135deg, rgba(0,0,0,0) 0%, rgba(45,10,80,0.2) 50%, rgba(0,0,0,0) 100%);
+  pointer-events: none;
+  z-index: 9;
+  opacity: 0;
+  transition: opacity 2.2s;
+}
+
+.transition-overlay.active {
+  opacity: 1;
+  animation: pulseGradient 2.2s ease-in-out;
+}
+
+@keyframes pulseGradient {
+  0% {
+    background: linear-gradient(135deg, rgba(0,0,0,0) 0%, rgba(45,10,80,0.1) 50%, rgba(0,0,0,0) 100%);
+  }
+  50% {
+    background: linear-gradient(135deg, rgba(0,0,0,0) 0%, rgba(75,20,120,0.3) 50%, rgba(0,0,0,0) 100%);
+  }
+  100% {
+    background: linear-gradient(135deg, rgba(0,0,0,0) 0%, rgba(45,10,80,0.1) 50%, rgba(0,0,0,0) 100%);
+  }
+}
+
+/* Progress indicator enhancement during transition */
+.step-transition .progress-bar .active {
+  animation: stepHighlight 1.5s ease-in-out;
+}
+
+@keyframes stepHighlight {
+  0% { box-shadow: 0 0 5px rgba(255, 255, 255, 0.5); }
+  50% { box-shadow: 0 0 15px rgba(255, 255, 255, 0.9); }
+  100% { box-shadow: 0 0 5px rgba(255, 255, 255, 0.5); }
+}
+
+/* 3D content transition effect with depth */
+.step-content {
+  position: relative;
+  transition: transform 2.2s cubic-bezier(0.7, 0, 0.3, 1), 
+              opacity 2.2s cubic-bezier(0.7, 0, 0.3, 1);
+  transform-style: preserve-3d;
+  perspective: 1000px;
+  transform: translateZ(0);
+}
+
+/* Exit animation for current step content */
+.step-exit {
+  animation: contentExitForward 2.2s cubic-bezier(0.7, 0, 0.3, 1) forwards;
+  pointer-events: none;
+}
+
+/* Entry animation for next step content */
+.step-enter {
+  animation: contentEnterFromDistance 2.2s cubic-bezier(0.7, 0, 0.3, 1) forwards;
+}
+
+@keyframes contentExitForward {
+  0% {
+    opacity: 1;
+    transform: translateZ(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateZ(800px) scale(1.8);
+  }
+}
+
+@keyframes contentEnterFromDistance {
+  0% {
+    opacity: 0;
+    transform: translateZ(-800px) scale(0.6);
+  }
+  100% {
+    opacity: 1;
+    transform: translateZ(0) scale(1);
+  }
+}
+
+/* Individual form elements animations */
+.step-transition .form-group,
+.step-transition .type-card,
+.step-transition .btn,
+.step-transition h3 {
+  animation: elementAppear 0.8s cubic-bezier(0.7, 0, 0.3, 1) forwards;
+  animation-delay: calc(var(--element-index, 0) * 0.1s);
+  opacity: 0;
+  transform: translateZ(-100px);
+}
+
+@keyframes elementAppear {
+  0% {
+    opacity: 0;
+    transform: translateZ(-100px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateZ(0);
+  }
+}

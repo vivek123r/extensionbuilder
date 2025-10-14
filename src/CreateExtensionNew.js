@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import JSZip from 'jszip';
 import './CreateExtensionNew.css';
 import HyperspeedBackground from './components/HyperspeedBackground';
+import StepTransition from './components/StepTransition';
 
 const CreateExtensionNew = () => {
   const navigate = useNavigate();
@@ -864,10 +865,41 @@ IMPORTANT FORMATTING INSTRUCTIONS:
     );
   };
 
+  // Track step transitions and direction
+  const [stepTransition, setStepTransition] = useState(false);
+  const [transitionDirection, setTransitionDirection] = useState('forward');
+  const [previousStep, setPreviousStep] = useState(1);
+
+  // Function to handle step changes with transition effect
+  const handleStepChange = (newStep) => {
+    // Determine direction
+    const direction = newStep > activeStep ? 'forward' : 'backward';
+    setTransitionDirection(direction);
+    
+    // Save current step as previous before changing
+    setPreviousStep(activeStep);
+    
+    // Trigger the transition effect
+    setStepTransition(true);
+    
+    // Change the step immediately - animation will handle the visual transition
+    setActiveStep(newStep);
+    
+    // Reset the transition flag after animation completes
+    setTimeout(() => {
+      setStepTransition(false);
+    }, 2500); // Increased duration to match longer CSS transitions
+  };
+
   return (
     <div className="create-extension">
-      <HyperspeedBackground />
-      <div id="lights"></div>
+      <HyperspeedBackground stepTransition={stepTransition} />
+      <StepTransition 
+        isActive={stepTransition} 
+        direction={transitionDirection}
+        currentStep={activeStep}
+        previousStep={previousStep}
+      />
       <div className="header">
         <div className="progress-bar">
           {[1, 2, 3, 4].map(step => (
@@ -882,17 +914,65 @@ IMPORTANT FORMATTING INSTRUCTIONS:
       </div>
 
       <div className="content">
-        {activeStep === 1 && renderStep1()}
-        {activeStep === 2 && renderStep2()}
-        {activeStep === 3 && renderStep3()}
-        {activeStep === 4 && renderStep4()}
+        <div className={`step-content step-1 ${activeStep === 1 ? 'active' : ''}`} 
+             style={{
+               display: activeStep === 1 || previousStep === 1 ? 'flex' : 'none',
+               flexDirection: 'column', 
+               alignItems: 'stretch', 
+               height: '100%',
+               position: 'absolute',
+               top: 0,
+               left: 0,
+               width: '100%'
+             }}>
+          {renderStep1()}
+        </div>
+        <div className={`step-content step-2 ${activeStep === 2 ? 'active' : ''}`} 
+             style={{
+               display: activeStep === 2 || previousStep === 2 ? 'flex' : 'none',
+               flexDirection: 'column', 
+               alignItems: 'stretch', 
+               height: '100%',
+               position: 'absolute',
+               top: 0,
+               left: 0,
+               width: '100%'
+             }}>
+          {renderStep2()}
+        </div>
+        <div className={`step-content step-3 ${activeStep === 3 ? 'active' : ''}`} 
+             style={{
+               display: activeStep === 3 || previousStep === 3 ? 'flex' : 'none',
+               flexDirection: 'column', 
+               alignItems: 'stretch', 
+               height: '100%',
+               position: 'absolute',
+               top: 0,
+               left: 0,
+               width: '100%'
+             }}>
+          {renderStep3()}
+        </div>
+        <div className={`step-content step-4 ${activeStep === 4 ? 'active' : ''}`} 
+             style={{
+               display: activeStep === 4 || previousStep === 4 ? 'flex' : 'none',
+               flexDirection: 'column', 
+               alignItems: 'stretch', 
+               height: '100%',
+               position: 'absolute',
+               top: 0,
+               left: 0,
+               width: '100%'
+             }}>
+          {renderStep4()}
+        </div>
       </div>
 
       <div className="navigation">
         {activeStep > 1 && (
           <button
             className="btn btn-secondary"
-            onClick={() => setActiveStep(activeStep - 1)}
+            onClick={() => handleStepChange(activeStep - 1)}
           >
             ← Previous
           </button>
@@ -901,7 +981,7 @@ IMPORTANT FORMATTING INSTRUCTIONS:
         {activeStep < 4 && (
           <button
             className="btn btn-primary"
-            onClick={() => setActiveStep(activeStep + 1)}
+            onClick={() => handleStepChange(activeStep + 1)}
             disabled={
               (activeStep === 1 && (!formData.name || !formData.description)) ||
               (activeStep === 2 && !formData.type)
