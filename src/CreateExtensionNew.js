@@ -82,9 +82,8 @@ const CreateExtensionNew = () => {
     setIsAiLoading(true);
     setError(null);
 
-    const apiKey = "AIzaSyBPZyraCHGM0kxtr_D2wmqwGwJ9D7MaA3Y";
+    const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-
     const prompt = `Based on the following extension description, generate a comprehensive list of specific tasks and features that this browser extension should include.
 
 **Extension Description:** "${currentDescription}"
@@ -324,9 +323,12 @@ Technical Notes:
   };
 
   const callGeminiAPI = async (prompt) => {
-    const apiKey = "AIzaSyBPZyraCHGM0kxtr_D2wmqwGwJ9D7MaA3Y";
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-
+    const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+    
+    // Use the specified model with support for fallback
+    let currentModel = "gemini-2.5-pro";
+    let apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${apiKey}`;
+    
     // Add retry logic
     const maxRetries = 3;
     let retryCount = 0;
@@ -382,8 +384,26 @@ IMPORTANT FORMATTING INSTRUCTIONS:
           
           // For 503 or 429 errors, we should retry
           if (response.status === 503 || response.status === 429) {
+            // Check if we need to fall back to Flash model
+            if (currentModel === "gemini-2.5-pro" && response.status === 429) {
+              console.log("Quota exceeded for Pro model. Falling back to Flash model...");
+              currentModel = "gemini-2.0-flash";
+              // Create a new URL with the updated model
+              apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${apiKey}`;
+              
+              // Show fallback message in UI
+              setError({
+                type: 'warning',
+                message: `Pro model quota exceeded. Falling back to Flash model...`
+              });
+              
+              // Wait a bit before retrying with the new model
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              continue;
+            }
+            
+            // Otherwise do normal retry with exponential backoff
             retryCount++;
-            // Exponential backoff: wait longer between each retry
             const delay = Math.pow(2, retryCount) * 1000; // 2s, 4s, 8s
             console.log(`Server busy (${response.status}). Retrying in ${delay/1000}s...`);
             
