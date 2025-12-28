@@ -1405,6 +1405,9 @@
 .description-with-ai {
   position: relative;
 }
+.description-with-ai textarea {
+  min-height: 200px ;
+}
 
 .btn-ai {
   background: linear-gradient(135deg, #FF3A2F, #990000);

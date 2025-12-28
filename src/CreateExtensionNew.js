@@ -4,9 +4,12 @@ import JSZip from 'jszip';
 import './CreateExtensionNew.css';
 import HyperspeedBackground from './components/HyperspeedBackground';
 import StepTransition from './components/StepTransition';
+import { useAuth } from './contexts/AuthContext';
+import { saveExtension } from './services/extensionService';
 
 const CreateExtensionNew = () => {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -83,7 +86,7 @@ const CreateExtensionNew = () => {
     setError(null);
 
     const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
     const prompt = `Based on the following extension description, generate a comprehensive list of specific tasks and features that this browser extension should include.
 
 **Extension Description:** "${currentDescription}"
@@ -244,6 +247,45 @@ Make the suggestions specific, actionable, and relevant to the described extensi
           throw new Error('Generated code is missing manifest.json');
         }
         setGeneratedCode(response.code);
+        
+        // Save extension to Firebase if user is logged in
+        if (currentUser) {
+          try {
+            console.log('Attempting to save extension for user:', currentUser.uid);
+            const extensionId = await saveExtension(currentUser.uid, {
+              name: formData.name,
+              description: formData.description,
+              version: formData.version,
+              type: formData.type,
+              permissions: formData.permissions,
+              author: formData.author,
+              targetBrowser: formData.targetBrowser,
+              generatedCode: response.code
+            });
+            console.log('Extension saved to database with ID:', extensionId);
+            setError({ 
+              type: 'success', 
+              message: '✅ Extension generated and saved successfully!' 
+            });
+            setTimeout(() => setError(null), 3000);
+          } catch (saveError) {
+            console.error('Failed to save extension to database:', saveError);
+            console.error('Error details:', saveError.message, saveError.code);
+            setError({ 
+              type: 'warning', 
+              message: '⚠️ Extension generated but not saved to database. Check Firebase setup.' 
+            });
+            setTimeout(() => setError(null), 5000);
+          }
+        } else {
+          console.log('No user logged in, skipping save to database');
+          setError({ 
+            type: 'warning', 
+            message: '⚠️ Extension generated but not saved. Please log in to save.' 
+          });
+          setTimeout(() => setError(null), 5000);
+        }
+        
         setActiveStep(4);
       } else {
         throw new Error('Invalid response from API');
@@ -270,6 +312,14 @@ Make the suggestions specific, actionable, and relevant to the described extensi
 - Target Browser: ${formData.targetBrowser}
 - Permissions: ${formData.permissions.join(', ') || 'none'}
 
+**CRITICAL REQUIREMENTS:**
+1. You MUST provide ALL required files for a complete working extension
+2. For popup type extensions, you MUST include: manifest.json, popup.html, popup.css, and popup.js
+3. All files must contain complete, working code - not placeholders or comments saying "add code here"
+4. The popup.html must have full HTML structure with proper styling
+5. The popup.css must have complete styles to make the extension look professional
+6. The popup.js must have complete functionality
+
 **Design & Development Requirements:**
 1. Create a polished, visually appealing user interface with modern design standards
 2. Implement comprehensive error handling and validation
@@ -291,17 +341,18 @@ Make the suggestions specific, actionable, and relevant to the described extensi
 6. Add subtle animations for improved user experience
 
 **Response Format:**
-Please provide the complete code in this JSON structure:
+IMPORTANT: Provide the complete code as a valid JSON object. Each file content should be a string with proper escaping.
+Example structure:
 {
-  "manifest": "// Example manifest.json content as string",
+  "manifest": "{\\n  \\"manifest_version\\": 3,\\n  \\"name\\": \\"Example\\",\\n  ...\\n}",
   "popup": {
-    "html": "// Example popup.html content as string",
-    "css": "// Example popup.css content as string", 
-    "js": "// Example popup.js content as string"
+    "html": "<!DOCTYPE html>\\n<html>\\n<head>...</head>\\n<body>...</body>\\n</html>",
+    "css": "body {\\n  font-family: Arial;\\n  ...\\n}",
+    "js": "document.addEventListener('DOMContentLoaded', () => {\\n  ...\\n});"
   },
   "content": {
-    "js": "// Example content script as string if applicable",
-    "css": "// Example content styles as string if applicable"
+    "js": "// Content script if needed",
+    "css": "// Content styles if needed"
   },
   "background": {
     "js": "// Example background script as string if applicable"
@@ -326,8 +377,7 @@ Technical Notes:
     const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
     
     // Use the specified model with support for fallback
-    let currentModel = "gemini-2.5-pro";
-    let apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${apiKey}`;
+    let apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
     
     // Add retry logic
     const maxRetries = 3;
@@ -336,7 +386,7 @@ Technical Notes:
     let responseText = null;
 
     // Add explicit instructions for JSON formatting
-    const enhancedPrompt = `${prompt}
+    const enhancedPrompt = `${prompt} 
     
 IMPORTANT FORMATTING INSTRUCTIONS: 
 1. Format your response as valid JSON that follows the exact structure provided
@@ -385,11 +435,10 @@ IMPORTANT FORMATTING INSTRUCTIONS:
           // For 503 or 429 errors, we should retry
           if (response.status === 503 || response.status === 429) {
             // Check if we need to fall back to Flash model
-            if (currentModel === "gemini-2.5-pro" && response.status === 429) {
+            if (response.status === 429) {
               console.log("Quota exceeded for Pro model. Falling back to Flash model...");
-              currentModel = "gemini-2.0-flash";
               // Create a new URL with the updated model
-              apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${apiKey}`;
+              apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
               
               // Show fallback message in UI
               setError({
@@ -463,7 +512,12 @@ IMPORTANT FORMATTING INSTRUCTIONS:
         // Method 2: Look for the largest JSON object in the response
         const jsonObjectMatch = responseText.match(/(\{[\s\S]*\})/);
         if (jsonObjectMatch && jsonObjectMatch[1]) {
-          jsonString = jsonObjectMatch[1].trim();
+          // Clean up excessive whitespace that might be causing parsing issues
+          let jsonString = jsonObjectMatch[1].trim();
+          
+          // Remove excessive newlines and whitespace padding in the JSON
+          jsonString = jsonString.replace(/\n{3,}/g, '\n\n');
+          
           console.log('Extracted JSON object pattern');
           
           try {
@@ -472,6 +526,55 @@ IMPORTANT FORMATTING INSTRUCTIONS:
             break; // Success - exit the retry loop
           } catch (e) {
             console.error('Failed to parse JSON object:', e);
+            
+            // Additional attempt: Try to fix common JSON parsing issues
+            try {
+              // Try to fix truncated strings
+              const fixedJson = jsonString.replace(/([^\\])(")([^,:}\]]*$)/gm, '$1$2');
+              parsedCode = JSON.parse(fixedJson);
+              console.log('Successfully parsed JSON after fixing truncated strings');
+              break; // Success - exit the retry loop
+            } catch (e2) {
+              console.error('Failed second parsing attempt:', e2);
+            }
+          }
+        }
+        
+        // Method 3: Try to extract and construct a partial JSON
+        if (!parsedCode) {
+          console.log('Attempting to extract partial JSON components...');
+          
+          // Extract manifest.json section
+          const manifestMatch = responseText.match(/"manifest"\s*:\s*"((?:\\"|[^"])*?)"/);
+          // Extract popup HTML section
+          const popupHtmlMatch = responseText.match(/"html"\s*:\s*"((?:\\"|[^"])*?)"/);
+          // Extract popup CSS section
+          const popupCssMatch = responseText.match(/"css"\s*:\s*"((?:\\"|[^"])*?)"/);
+          // Extract popup JS section
+          const popupJsMatch = responseText.match(/"js"\s*:\s*"((?:\\"|[^"])*?)"/);
+          
+          // If we have at least the manifest, we can try to construct a partial response
+          if (manifestMatch && manifestMatch[1]) {
+            try {
+              const partialObj = {
+                manifest: manifestMatch[1].replace(/\\\\n/g, '\\n')
+              };
+              
+              // Add popup components if found
+              if (popupHtmlMatch && popupCssMatch && popupJsMatch) {
+                partialObj.popup = {
+                  html: popupHtmlMatch[1].replace(/\\\\n/g, '\\n'),
+                  css: popupCssMatch[1].replace(/\\\\n/g, '\\n'),
+                  js: popupJsMatch[1].replace(/\\\\n/g, '\\n')
+                };
+              }
+              
+              console.log('Created partial JSON from extracted components');
+              parsedCode = partialObj;
+              break; // Success - exit the retry loop
+            } catch (e) {
+              console.error('Failed to create partial JSON:', e);
+            }
           }
         }
         
@@ -520,6 +623,47 @@ IMPORTANT FORMATTING INSTRUCTIONS:
     // Check if parsedCode is null
     if (!parsedCode) {
       throw new Error('Unable to generate code. Please try again.');
+    }
+    
+    // Unescape JSON strings function
+    const unescapeJsonString = (str) => {
+      if (!str) return str;
+      try {
+        // If it's already valid JSON/HTML/CSS/JS, return as is
+        if (!str.includes('\\n') && !str.includes('\\"')) {
+          return str;
+        }
+        // Replace escaped newlines and quotes
+        return str
+          .replace(/\\n/g, '\n')
+          .replace(/\\"/g, '"')
+          .replace(/\\t/g, '\t')
+          .replace(/\\\\/g, '\\');
+      } catch (e) {
+        return str;
+      }
+    };
+    
+    // Unescape all code strings
+    if (parsedCode.manifest) {
+      parsedCode.manifest = unescapeJsonString(parsedCode.manifest);
+    }
+    if (parsedCode.popup) {
+      if (parsedCode.popup.html) parsedCode.popup.html = unescapeJsonString(parsedCode.popup.html);
+      if (parsedCode.popup.css) parsedCode.popup.css = unescapeJsonString(parsedCode.popup.css);
+      if (parsedCode.popup.js) parsedCode.popup.js = unescapeJsonString(parsedCode.popup.js);
+    }
+    if (parsedCode.content) {
+      if (parsedCode.content.js) parsedCode.content.js = unescapeJsonString(parsedCode.content.js);
+      if (parsedCode.content.css) parsedCode.content.css = unescapeJsonString(parsedCode.content.css);
+    }
+    if (parsedCode.background?.js) {
+      parsedCode.background.js = unescapeJsonString(parsedCode.background.js);
+    }
+    if (parsedCode.options) {
+      if (parsedCode.options.html) parsedCode.options.html = unescapeJsonString(parsedCode.options.html);
+      if (parsedCode.options.js) parsedCode.options.js = unescapeJsonString(parsedCode.options.js);
+      if (parsedCode.options.css) parsedCode.options.css = unescapeJsonString(parsedCode.options.css);
     }
     
     // Remove icons from manifest if no icon provided

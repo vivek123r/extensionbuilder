@@ -116,8 +116,7 @@ function CreateExtension() {
    */
   const sendPromptToGemini = async (history, type = 'chat') => {
     setIsChatLoading(true);
-
-    const apiKey = "AIzaSyBq23mkvFSmfqecjNgkfq9rA8V34nrE6Ng"; // Canvas environment will automatically provide API key for gemini-2.5-pro
+     // Canvas environment will automatically provide API key for gemini-2.5-pro
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`; // Switched to 2.5-pro for automatic key handling
 
     const payload = { contents: history };

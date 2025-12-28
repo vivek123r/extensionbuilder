@@ -2,9 +2,11 @@ import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import "./App.css";
 import BackgroundVideo from "./components/BackgroundVideo";
+import { useAuth } from "./contexts/AuthContext";
 
 export default function HomePage() {
   const navigate = useNavigate();
+  const { currentUser, logout } = useAuth();
 
   useEffect(() => {
     // Create animated code lines in the background
@@ -80,10 +82,50 @@ export default function HomePage() {
           <a href="#" className="nav-link">Extensions</a>
           <a href="#" className="nav-link">Docs</a>
         </nav>
-        <button className="start-building-btn pulse-btn" onClick={() => navigate("/create")}>
-          Start Building
-          <span className="btn-glow"></span>
-        </button>
+        <div className="header-actions">
+          {currentUser ? (
+            <>
+              <button 
+                className="user-btn"
+                onClick={() => navigate("/my-extensions")}
+              >
+                My Extensions
+              </button>
+              <button 
+                className="start-building-btn pulse-btn" 
+                onClick={() => navigate("/create-extension")}
+              >
+                Start Building
+                <span className="btn-glow"></span>
+              </button>
+              <button 
+                className="logout-btn"
+                onClick={async () => {
+                  await logout();
+                  navigate("/");
+                }}
+              >
+                Logout
+              </button>
+            </>
+          ) : (
+            <>
+              <button 
+                className="login-btn"
+                onClick={() => navigate("/login")}
+              >
+                Login
+              </button>
+              <button 
+                className="start-building-btn pulse-btn" 
+                onClick={() => navigate("/signup")}
+              >
+                Sign Up
+                <span className="btn-glow"></span>
+              </button>
+            </>
+          )}
+        </div>
       </header>
 
       <div className="hero-section">
@@ -106,18 +148,18 @@ export default function HomePage() {
           <div className="hero-buttons">
             <button 
               className="primary-btn glow-btn" 
-              onClick={() => navigate("/create")}
+              onClick={() => navigate(currentUser ? "/create-extension" : "/signup")}
             >
-              Start Building
+              {currentUser ? "Start Building" : "Get Started"}
               <span className="btn-icon">→</span>
               <span className="btn-glow"></span>
             </button>
             
             <button 
               className="secondary-btn outline-btn"
-              onClick={() => navigate("/modify")}
+              onClick={() => navigate(currentUser ? "/my-extensions" : "/login")}
             >
-              View Examples
+              {currentUser ? "My Extensions" : "Login"}
               <span className="btn-border-glow"></span>
             </button>
           </div>
