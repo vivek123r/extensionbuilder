@@ -301,130 +301,77 @@ Make the suggestions specific, actionable, and relevant to the described extensi
   };
 
   const createDetailedPrompt = () => {
-    return `Design a professional-grade ${formData.targetBrowser} browser extension with modern UI and robust functionality based on these specifications:
+    return `Create a ${formData.targetBrowser} browser extension (Manifest V3):
 
-**Extension Details:**
-- Name: ${formData.name}
-- Description: ${formData.description}
-- Version: ${formData.version}
-- Type: ${formData.type}
-- Author: ${formData.author}
-- Target Browser: ${formData.targetBrowser}
-- Permissions: ${formData.permissions.join(', ') || 'none'}
+Name: ${formData.name}
+Description: ${formData.description}
+Version: ${formData.version}
+Type: ${formData.type}
+Permissions: ${formData.permissions.join(', ') || 'none'}
 
-**CRITICAL REQUIREMENTS:**
-1. You MUST provide ALL required files for a complete working extension
-2. For popup type extensions, you MUST include: manifest.json, popup.html, popup.css, and popup.js
-3. All files must contain complete, working code - not placeholders or comments saying "add code here"
-4. The popup.html must have full HTML structure with proper styling
-5. The popup.css must have complete styles to make the extension look professional
-6. The popup.js must have complete functionality
+Requirements:
+- Complete working code (no TODOs or placeholders)
+- Modern, beautiful UI with gradients, shadows, rounded corners
+- Proper error handling and validation
+- Valid Manifest V3 format
 
-**Design & Development Requirements:**
-1. Create a polished, visually appealing user interface with modern design standards
-2. Implement comprehensive error handling and validation
-3. Use modern JavaScript (ES6+) and CSS features
-4. Include detailed comments explaining key functionality
-5. Follow ${formData.targetBrowser} extension best practices
-6. Create responsive layouts that work well across different screen sizes
-7. Implement proper state management and performance optimization
-8. Use consistent design patterns and intuitive UX principles
-9. Include dark mode support where appropriate
-10. Incorporate smooth animations and transitions for better UX
+UI Style:
+- Vibrant gradients and modern colors
+- Box shadows for depth
+- System fonts, smooth transitions
+- Clean spacing and layout
 
-**UI Requirements:**
-1. Use a modern UI framework approach (Material Design, clean minimalist, etc.)
-2. Include proper spacing, typography hierarchy, and visual balance
-3. Design attractive buttons, inputs, and interactive elements
-4. Use appropriate color scheme with good contrast
-5. Implement responsive layouts that adapt to different sizes
-6. Add subtle animations for improved user experience
-
-**Response Format:**
-IMPORTANT: Provide the complete code as a valid JSON object. Each file content should be a string with proper escaping.
-Example structure:
+Decide which files are needed based on the extension functionality. Return JSON format:
+\`\`\`json
 {
-  "manifest": "{\\n  \\"manifest_version\\": 3,\\n  \\"name\\": \\"Example\\",\\n  ...\\n}",
-  "popup": {
-    "html": "<!DOCTYPE html>\\n<html>\\n<head>...</head>\\n<body>...</body>\\n</html>",
-    "css": "body {\\n  font-family: Arial;\\n  ...\\n}",
-    "js": "document.addEventListener('DOMContentLoaded', () => {\\n  ...\\n});"
-  },
-  "content": {
-    "js": "// Content script if needed",
-    "css": "// Content styles if needed"
-  },
-  "background": {
-    "js": "// Example background script as string if applicable"
-  },
-  "options": {
-    "html": "// Example options page HTML as string if applicable",
-    "js": "// Example options page JS as string if applicable",
-    "css": "// Example options page CSS as string if applicable"
-  }
+  "manifest": "{\\"manifest_version\\": 3, ...}",
+  "popup": { "html": "...", "css": "...", "js": "..." },
+  "background": { "js": "..." },
+  "content": { "js": "...", "css": "..." },
+  "options": { "html": "...", "js": "...", "css": "..." }
 }
+\`\`\`
 
-Technical Notes:
-- Use Manifest V3 format for Chrome extensions
-- Include proper error handling and input validation
-- Ensure code is well-structured and maintainable
-- Optimize for performance and responsiveness
-- Ensure accessibility compliance where possible
-- Focus on creating a polished, professional-looking extension`;
+CRITICAL: Every file you reference in manifest.json MUST have its complete code included in the JSON response above. If manifest references "background.js", include "background": { "js": "complete code here" }.`;
   };
 
   const callGeminiAPI = async (prompt) => {
-    const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+    // Use OpenRouter with DeepSeek-R1 (reasoning model)
+    const apiKey = process.env.REACT_APP_OPENROUTER_API_KEY;
+    const apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
     
-    // Use the specified model with support for fallback
-    let apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
-    
-    // Add retry logic
     const maxRetries = 3;
     let retryCount = 0;
     let parsedCode = null;
-    let responseText = null;
-
-    // Add explicit instructions for JSON formatting
-    const enhancedPrompt = `${prompt} 
-    
-IMPORTANT FORMATTING INSTRUCTIONS: 
-1. Format your response as valid JSON that follows the exact structure provided
-2. Make sure all quotes and special characters in strings are properly escaped
-3. Create a polished, visually appealing UI with modern CSS including:
-   - Attractive color schemes
-   - Proper spacing and layout
-   - Interactive elements with hover effects
-   - Clean typography and visual hierarchy
-4. Return the JSON directly within triple backtick code block markers
-5. Format your response exactly like this:
-\`\`\`json
-{
-  "manifest": "{\\"manifest_version\\": 3, \\"name\\": \\"Example\\", ...}",
-  "popup": {
-    "html": "<!DOCTYPE html>\\n<html>\\n  <head>...</head>\\n  <body>...</body>\\n</html>",
-    "css": "/* Modern, attractive CSS with proper styling */\\nbody {\\n  font-family: 'Segoe UI', system-ui, sans-serif;\\n  ...\\n}",
-    "js": "// Well-structured JavaScript with proper error handling\\ndocument.addEventListener('DOMContentLoaded', () => {\\n  ...\\n});"
-  },
-  // other files as needed
-}
-\`\`\``;
 
     while (retryCount <= maxRetries) {
       try {
-        console.log(`API attempt ${retryCount + 1}/${maxRetries + 1}`);
+        console.log(`API attempt ${retryCount + 1}/${maxRetries + 1} using DeepSeek-R1 (reasoning model)`);
         
         const response = await fetch(apiUrl, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+            "HTTP-Referer": "http://localhost:3000",
+            "X-Title": "Extension Builder"
+          },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: enhancedPrompt }] }],
-            generationConfig: {
-              temperature: 0.4, // Slightly higher temperature for more creative UI design
-              topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 16384, // Increased token limit for more detailed output
-            }
+            model: "deepseek/deepseek-r1",
+            messages: [
+              {
+                role: "system",
+                content: "You are an expert browser extension developer. CRITICAL: If you reference a file in manifest.json (like background.js, content.js, etc.), you MUST include that file's complete code in your response. Analyze requirements and decide which files are needed. Create production-ready code with beautiful, modern UI. Return complete working code - no placeholders. Always ensure every file referenced in manifest exists in your response."
+              },
+              {
+                role: "user",
+                content: prompt
+              }
+            ],
+            temperature: 0.6,
+            max_tokens: 16000,
+            top_p: 0.95,
+            frequency_penalty: 0.2
           })
         });
 
@@ -432,53 +379,30 @@ IMPORTANT FORMATTING INSTRUCTIONS:
           const errorText = await response.text();
           console.error(`API Error (Attempt ${retryCount + 1}/${maxRetries + 1}):`, response.status, errorText);
           
-          // For 503 or 429 errors, we should retry
           if (response.status === 503 || response.status === 429) {
-            // Check if we need to fall back to Flash model
-            if (response.status === 429) {
-              console.log("Quota exceeded for Pro model. Falling back to Flash model...");
-              // Create a new URL with the updated model
-              apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
-              
-              // Show fallback message in UI
-              setError({
-                type: 'warning',
-                message: `Pro model quota exceeded. Falling back to Flash model...`
-              });
-              
-              // Wait a bit before retrying with the new model
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              continue;
-            }
-            
-            // Otherwise do normal retry with exponential backoff
             retryCount++;
-            const delay = Math.pow(2, retryCount) * 1000; // 2s, 4s, 8s
+            const delay = Math.pow(2, retryCount) * 1000;
             console.log(`Server busy (${response.status}). Retrying in ${delay/1000}s...`);
             
-            // Show retry message in UI
             setError({ 
               type: 'warning', 
               message: `Server busy. Retrying in ${delay/1000}s... (${retryCount}/${maxRetries + 1})`
             });
             
-            // Wait before retrying
             await new Promise(resolve => setTimeout(resolve, delay));
             continue;
           }
           
-          throw new Error(`API Error: ${response.status}`);
+          throw new Error(`API Error: ${response.status} - ${errorText}`);
         }
 
         const data = await response.json();
         console.log('Full API Response:', data);
         
-        // Extract response text
-        if (data.candidates && data.candidates[0]) {
-          const candidate = data.candidates[0];
-          if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {
-            responseText = candidate.content.parts[0].text;
-          }
+        // Extract response text from Groq format
+        let responseText = null;
+        if (data.choices && data.choices[0] && data.choices[0].message) {
+          responseText = data.choices[0].message.content;
         }
         
         if (!responseText) {
