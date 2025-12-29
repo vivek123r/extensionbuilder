@@ -28,6 +28,22 @@ const CreateExtensionNew = () => {
   const [activeFileIndex, setActiveFileIndex] = useState(0);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const iconInputRef = useRef(null);
+  
+  // Streaming and animation states
+  const [streamingText, setStreamingText] = useState('');
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [currentAnimFileIndex, setCurrentAnimFileIndex] = useState(0);
+  const [currentAnimText, setCurrentAnimText] = useState('');
+  const [animationComplete, setAnimationComplete] = useState(false);
+  const animationFiles = [
+    { name: 'manifest.json', icon: '📄', key: 'manifest' },
+    { name: 'popup.html', icon: '🌐', key: 'popup.html' },
+    { name: 'popup.css', icon: '🎨', key: 'popup.css' },
+    { name: 'popup.js', icon: '⚡', key: 'popup.js' },
+    { name: 'content.js', icon: '📜', key: 'content.js' },
+    { name: 'background.js', icon: '⚙️', key: 'background.js' },
+    { name: 'options.html', icon: '🌐', key: 'options.html' }
+  ];
 
   const extensionTypes = [
     { value: 'popup', label: 'Browser Action Popup', description: 'Extension with a popup interface' },
@@ -231,9 +247,52 @@ Make the suggestions specific, actionable, and relevant to the described extensi
     setIsAiLoading(false);
   };
 
+  const startCodeAnimation = async (code) => {
+    setIsAnimating(true);
+    setCurrentAnimFileIndex(0);
+    setAnimationComplete(false);
+    
+    const filesToAnimate = animationFiles.filter(file => {
+      if (file.key === 'manifest') return code.manifest;
+      if (file.key === 'popup.html') return code.popup?.html;
+      if (file.key === 'popup.css') return code.popup?.css;
+      if (file.key === 'popup.js') return code.popup?.js;
+      if (file.key === 'content.js') return code.content?.js;
+      if (file.key === 'background.js') return code.background?.js;
+      if (file.key === 'options.html') return code.options?.html;
+      return false;
+    });
+    
+    for (let i = 0; i < filesToAnimate.length; i++) {
+      setCurrentAnimFileIndex(i);
+      const file = filesToAnimate[i];
+      let content = '';
+      
+      if (file.key === 'manifest') content = code.manifest;
+      else if (file.key === 'popup.html') content = code.popup?.html;
+      else if (file.key === 'popup.css') content = code.popup?.css;
+      else if (file.key === 'popup.js') content = code.popup?.js;
+      else if (file.key === 'content.js') content = code.content?.js;
+      else if (file.key === 'background.js') content = code.background?.js;
+      else if (file.key === 'options.html') content = code.options?.html;
+      
+      // Animate character by character (30 chars at a time for speed)
+      for (let j = 0; j < content.length; j += 30) {
+        setCurrentAnimText(content.substring(0, j + 30));
+        await new Promise(resolve => setTimeout(resolve, 2));
+      }
+      setCurrentAnimText(content);
+      await new Promise(resolve => setTimeout(resolve, 150));
+    }
+    
+    setIsAnimating(false);
+    setAnimationComplete(true);
+  };
+
   const generateExtension = async () => {
     setIsGenerating(true);
     setError(null);
+    setStreamingText('');
 
     try {
       const prompt = createDetailedPrompt();
@@ -247,6 +306,10 @@ Make the suggestions specific, actionable, and relevant to the described extensi
           throw new Error('Generated code is missing manifest.json');
         }
         setGeneratedCode(response.code);
+        setIsGenerating(false);
+        
+        // Start typewriter animation
+        await startCodeAnimation(response.code);
         
         // Save extension to Firebase if user is logged in
         if (currentUser) {
@@ -263,27 +326,9 @@ Make the suggestions specific, actionable, and relevant to the described extensi
               generatedCode: response.code
             });
             console.log('Extension saved to database with ID:', extensionId);
-            setError({ 
-              type: 'success', 
-              message: '✅ Extension generated and saved successfully!' 
-            });
-            setTimeout(() => setError(null), 3000);
           } catch (saveError) {
             console.error('Failed to save extension to database:', saveError);
-            console.error('Error details:', saveError.message, saveError.code);
-            setError({ 
-              type: 'warning', 
-              message: '⚠️ Extension generated but not saved to database. Check Firebase setup.' 
-            });
-            setTimeout(() => setError(null), 5000);
           }
-        } else {
-          console.log('No user logged in, skipping save to database');
-          setError({ 
-            type: 'warning', 
-            message: '⚠️ Extension generated but not saved. Please log in to save.' 
-          });
-          setTimeout(() => setError(null), 5000);
         }
         
         setActiveStep(4);
@@ -295,7 +340,6 @@ Make the suggestions specific, actionable, and relevant to the described extensi
         type: 'error',
         message: err.message || 'Failed to generate extension'
       });
-    } finally {
       setIsGenerating(false);
     }
   };
@@ -311,15 +355,10 @@ Permissions: ${formData.permissions.join(', ') || 'none'}
 
 Requirements:
 - Complete working code (no TODOs or placeholders)
-- Modern, beautiful UI with gradients, shadows, rounded corners
+- Modern, beautiful UI design
 - Proper error handling and validation
 - Valid Manifest V3 format
 
-UI Style:
-- Vibrant gradients and modern colors
-- Box shadows for depth
-- System fonts, smooth transitions
-- Clean spacing and layout
 
 Decide which files are needed based on the extension functionality. Return JSON format:
 \`\`\`json
@@ -336,7 +375,6 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
   };
 
   const callGeminiAPI = async (prompt) => {
-    // Use OpenRouter with DeepSeek-R1 (reasoning model)
     const apiKey = process.env.REACT_APP_OPENROUTER_API_KEY;
     const apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
     
@@ -346,7 +384,7 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
 
     while (retryCount <= maxRetries) {
       try {
-        console.log(`API attempt ${retryCount + 1}/${maxRetries + 1} using DeepSeek-R1 (reasoning model)`);
+        console.log(`API attempt ${retryCount + 1}/${maxRetries + 1} with streaming`);
         
         const response = await fetch(apiUrl, {
           method: "POST",
@@ -357,7 +395,7 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
             "X-Title": "Extension Builder"
           },
           body: JSON.stringify({
-            model: "deepseek/deepseek-r1",
+            model: "xiaomi/mimo-v2-flash:free",
             messages: [
               {
                 role: "system",
@@ -371,7 +409,8 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
             temperature: 0.6,
             max_tokens: 16000,
             top_p: 0.95,
-            frequency_penalty: 0.2
+            frequency_penalty: 0.2,
+            stream: true
           })
         });
 
@@ -396,21 +435,58 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
           throw new Error(`API Error: ${response.status} - ${errorText}`);
         }
 
-        const data = await response.json();
-        console.log('Full API Response:', data);
+        // Handle streaming response
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
         
-        // Extract response text from Groq format
-        let responseText = null;
-        if (data.choices && data.choices[0] && data.choices[0].message) {
-          responseText = data.choices[0].message.content;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') continue;
+              
+              try {
+                const parsed = JSON.parse(data);
+                const delta = parsed.choices?.[0]?.delta || {};
+                
+                // Display reasoning and content as they stream
+                const reasoning = delta.reasoning || delta.reasoning_details?.[0]?.text || '';
+                const content = delta.content || '';
+                
+                if (reasoning) {
+                  setStreamingText(prev => (prev || '') + reasoning);
+                }
+                
+                if (content && !reasoning) {
+                  setStreamingText(prev => (prev || '') + content);
+                }
+                
+                if (content) {
+                  fullText += content;
+                }
+              } catch (e) {
+                // Skip invalid JSON
+              }
+            }
+          }
         }
+
+        console.log('Stream complete, parsing response...');
+        const responseText = fullText;
         
         if (!responseText) {
-          console.error('No response content found in:', data);
+          console.error('No response content received');
           throw new Error('No response content received from AI');
         }
 
-        console.log('Response Text:', responseText);
+        console.log('Parsing response text...');
         
         // Try multiple extraction methods to find the JSON
         let jsonString = null;
@@ -822,6 +898,83 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
   );
 
   const renderStep4 = () => {
+    // Show typewriter animation
+    if (isAnimating || (generatedCode && !animationComplete)) {
+      const filesToShow = animationFiles.filter(file => {
+        if (file.key === 'manifest') return generatedCode?.manifest;
+        if (file.key === 'popup.html') return generatedCode?.popup?.html;
+        if (file.key === 'popup.css') return generatedCode?.popup?.css;
+        if (file.key === 'popup.js') return generatedCode?.popup?.js;
+        if (file.key === 'content.js') return generatedCode?.content?.js;
+        if (file.key === 'background.js') return generatedCode?.background?.js;
+        if (file.key === 'options.html') return generatedCode?.options?.html;
+        return false;
+      });
+      
+      // Safety check: ensure we have files to show and valid index
+      if (filesToShow.length === 0) {
+        return (
+          <div className="step-content">
+            <h3>⚠️ No Files Generated</h3>
+            <p>The AI didn't generate any files. Please try again.</p>
+          </div>
+        );
+      }
+      
+      const safeIndex = Math.min(currentAnimFileIndex, filesToShow.length - 1);
+      const currentFile = filesToShow[safeIndex];
+      
+      // Safety check: ensure currentFile exists
+      if (!currentFile) {
+        return (
+          <div className="step-content">
+            <h3>⚠️ Animation Error</h3>
+            <p>Could not load file animation. Please try again.</p>
+          </div>
+        );
+      }
+      
+      return (
+        <div className="step-content animation-view">
+          <h3>✨ Creating Extension Files</h3>
+          
+          <div className="animation-container">
+            <div className="file-tree">
+              <div className="file-tree-header">
+                <span>📁 {formData.name || 'extension'}</span>
+              </div>
+              {filesToShow.map((file, index) => (
+                <div 
+                  key={file.name}
+                  className={`file-tree-item ${index === safeIndex ? 'active' : ''} ${index < safeIndex ? 'completed' : ''}`}
+                >
+                  <span className="file-icon">{file.icon}</span>
+                  <span className="file-name">{file.name}</span>
+                  {index < safeIndex && <span className="check-mark">✓</span>}
+                  {index === safeIndex && <span className="writing-indicator">...</span>}
+                </div>
+              ))}
+            </div>
+            
+            <div className="code-editor">
+              <div className="editor-header">
+                <span className="editor-tab active">
+                  {currentFile.icon} {currentFile.name}
+                </span>
+                <span className="editor-status">
+                  {safeIndex + 1} / {filesToShow.length} files
+                </span>
+              </div>
+              <pre className="editor-content">
+                {currentAnimText}
+                <span className="typing-cursor">▌</span>
+              </pre>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    
     if (!generatedCode) {
       return (
         <div className="step-content">
@@ -831,6 +984,18 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
               <div className="loading">
                 <div className="spinner"></div>
                 <p>Generating your extension...</p>
+                
+                {streamingText && (
+                  <div className="thinking-container">
+                    <div className="thinking-animation">
+                      <div className="thinking-dot"></div>
+                      <div className="thinking-dot"></div>
+                      <div className="thinking-dot"></div>
+                    </div>
+                    <h4 className="thinking-header">🧠 AI Reasoning</h4>
+                    <pre className="thinking-text-stream">{streamingText}</pre>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="generate-section">

@@ -582,6 +582,226 @@
   font-weight: 600;
 }
 
+/* Thinking/Streaming Animation */
+.thinking-container {
+  margin-top: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  max-width: 900px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.thinking-animation {
+  display: flex;
+  gap: 8px;
+}
+
+.thinking-dot {
+  width: 12px;
+  height: 12px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  border-radius: 50%;
+  animation: thinking-bounce 1.4s ease-in-out infinite;
+}
+
+.thinking-dot:nth-child(1) { animation-delay: 0s; }
+.thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes thinking-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+.thinking-header {
+  color: #a78bfa;
+  font-size: 18px;
+  font-weight: 600;
+  margin: 10px 0;
+  text-align: center;
+}
+
+.thinking-text-stream {
+  background: rgba(15, 15, 25, 0.95);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 12px;
+  padding: 20px;
+  width: 100%;
+  color: #e0e0e0;
+  font-family: 'Fira Code', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+  text-align: left;
+}
+
+.thinking-text-stream::-webkit-scrollbar {
+  width: 8px;
+}
+
+.thinking-text-stream::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.thinking-text-stream::-webkit-scrollbar-thumb {
+  background: rgba(139, 92, 246, 0.5);
+  border-radius: 4px;
+}
+
+/* Animation View Styles */
+.animation-view {
+  display: flex;
+  flex-direction: column;
+}
+
+.animation-container {
+  display: flex;
+  gap: 20px;
+  height: 500px;
+  margin-top: 20px;
+}
+
+.file-tree {
+  width: 250px;
+  background: rgba(15, 15, 25, 0.95);
+  border-radius: 12px;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  overflow: hidden;
+}
+
+.file-tree-header {
+  background: linear-gradient(135deg, #1e1e2e 0%, #2d2d3d 100%);
+  padding: 12px 16px;
+  font-weight: 600;
+  color: #a78bfa;
+  border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.file-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  color: #888;
+  transition: all 0.3s ease;
+  border-left: 3px solid transparent;
+}
+
+.file-tree-item.active {
+  background: rgba(139, 92, 246, 0.15);
+  color: #fff;
+  border-left-color: #a78bfa;
+}
+
+.file-tree-item.completed {
+  color: #22c55e;
+}
+
+.file-tree-item .file-icon {
+  font-size: 16px;
+}
+
+.file-tree-item .file-name {
+  flex: 1;
+  font-family: 'Fira Code', monospace;
+  font-size: 13px;
+}
+
+.file-tree-item .check-mark {
+  color: #22c55e;
+  font-weight: bold;
+}
+
+.file-tree-item .writing-indicator {
+  color: #a78bfa;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.code-editor {
+  flex: 1;
+  background: rgba(15, 15, 25, 0.95);
+  border-radius: 12px;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-header {
+  background: linear-gradient(135deg, #1e1e2e 0%, #2d2d3d 100%);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.editor-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(139, 92, 246, 0.2);
+  border-radius: 6px;
+  color: #a78bfa;
+  font-family: 'Fira Code', monospace;
+  font-size: 13px;
+}
+
+.editor-status {
+  color: #666;
+  font-size: 12px;
+}
+
+.editor-content {
+  flex: 1;
+  background: #0d0d14;
+  color: #e0e0e0;
+  padding: 20px;
+  margin: 0;
+  overflow-y: auto;
+  font-family: 'Fira Code', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.editor-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.editor-content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.editor-content::-webkit-scrollbar-thumb {
+  background: rgba(139, 92, 246, 0.5);
+  border-radius: 4px;
+}
+
+.typing-cursor {
+  color: #a78bfa;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
 .error-message {
   color: #e74c3c;
   margin-top: 10px;
