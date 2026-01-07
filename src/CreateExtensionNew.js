@@ -35,15 +35,8 @@ const CreateExtensionNew = () => {
   const [currentAnimFileIndex, setCurrentAnimFileIndex] = useState(0);
   const [currentAnimText, setCurrentAnimText] = useState('');
   const [animationComplete, setAnimationComplete] = useState(false);
-  const animationFiles = [
-    { name: 'manifest.json', icon: '📄', key: 'manifest' },
-    { name: 'popup.html', icon: '🌐', key: 'popup.html' },
-    { name: 'popup.css', icon: '🎨', key: 'popup.css' },
-    { name: 'popup.js', icon: '⚡', key: 'popup.js' },
-    { name: 'content.js', icon: '📜', key: 'content.js' },
-    { name: 'background.js', icon: '⚙️', key: 'background.js' },
-    { name: 'options.html', icon: '🌐', key: 'options.html' }
-  ];
+  const [animationFiles, setAnimationFiles] = useState([]);
+  const [reasoningText, setReasoningText] = useState('');
 
   const extensionTypes = [
     { value: 'popup', label: 'Browser Action Popup', description: 'Extension with a popup interface' },
@@ -247,58 +240,31 @@ Make the suggestions specific, actionable, and relevant to the described extensi
     setIsAiLoading(false);
   };
 
-  const startCodeAnimation = async (code) => {
-    setIsAnimating(true);
-    setCurrentAnimFileIndex(0);
-    setAnimationComplete(false);
-    
-    const filesToAnimate = animationFiles.filter(file => {
-      if (file.key === 'manifest') return code.manifest;
-      if (file.key === 'popup.html') return code.popup?.html;
-      if (file.key === 'popup.css') return code.popup?.css;
-      if (file.key === 'popup.js') return code.popup?.js;
-      if (file.key === 'content.js') return code.content?.js;
-      if (file.key === 'background.js') return code.background?.js;
-      if (file.key === 'options.html') return code.options?.html;
-      return false;
-    });
-    
-    for (let i = 0; i < filesToAnimate.length; i++) {
-      setCurrentAnimFileIndex(i);
-      const file = filesToAnimate[i];
-      let content = '';
-      
-      if (file.key === 'manifest') content = code.manifest;
-      else if (file.key === 'popup.html') content = code.popup?.html;
-      else if (file.key === 'popup.css') content = code.popup?.css;
-      else if (file.key === 'popup.js') content = code.popup?.js;
-      else if (file.key === 'content.js') content = code.content?.js;
-      else if (file.key === 'background.js') content = code.background?.js;
-      else if (file.key === 'options.html') content = code.options?.html;
-      
-      // Animate character by character (30 chars at a time for speed)
-      for (let j = 0; j < content.length; j += 30) {
-        setCurrentAnimText(content.substring(0, j + 30));
-        await new Promise(resolve => setTimeout(resolve, 2));
-      }
-      setCurrentAnimText(content);
-      await new Promise(resolve => setTimeout(resolve, 150));
-    }
-    
-    setIsAnimating(false);
-    setAnimationComplete(true);
+  // Helper function to get icon based on file extension
+  const getFileIcon = (filename) => {
+    if (filename.endsWith('.json')) return '📄';
+    if (filename.endsWith('.html')) return '🌐';
+    if (filename.endsWith('.css')) return '🎨';
+    if (filename.endsWith('.js')) return '⚡';
+    if (filename.endsWith('.png') || filename.endsWith('.jpg') || filename.endsWith('.svg')) return '🖼️';
+    if (filename.endsWith('.md')) return '📝';
+    return '📁';
   };
 
   const generateExtension = async () => {
     setIsGenerating(true);
     setError(null);
     setStreamingText('');
+    setReasoningText('');
+    setAnimationFiles([]);
+    setAnimationComplete(false);
+    setActiveStep(4); // Move to step 4 immediately to show streaming
 
     try {
       const prompt = createDetailedPrompt();
       console.log('Sending prompt to API...');
       const response = await callGeminiAPI(prompt);
-      console.log('API response received:', response);
+      console.log('Generation complete, files received:', response);
       
       if (response && response.code) {
         // Validate that key components exist
@@ -307,9 +273,8 @@ Make the suggestions specific, actionable, and relevant to the described extensi
         }
         setGeneratedCode(response.code);
         setIsGenerating(false);
-        
-        // Start typewriter animation
-        await startCodeAnimation(response.code);
+        setIsAnimating(false);
+        setAnimationComplete(true);
         
         // Save extension to Firebase if user is logged in
         if (currentUser) {
@@ -330,8 +295,6 @@ Make the suggestions specific, actionable, and relevant to the described extensi
             console.error('Failed to save extension to database:', saveError);
           }
         }
-        
-        setActiveStep(4);
       } else {
         throw new Error('Invalid response from API');
       }
@@ -341,37 +304,92 @@ Make the suggestions specific, actionable, and relevant to the described extensi
         message: err.message || 'Failed to generate extension'
       });
       setIsGenerating(false);
+      setIsAnimating(false);
     }
   };
 
   const createDetailedPrompt = () => {
-    return `Create a ${formData.targetBrowser} browser extension (Manifest V3):
+    return `You are an expert browser extension developer. Create a professional, production-ready ${formData.targetBrowser} browser extension (Manifest V3).
 
+=== EXTENSION SPECIFICATION ===
 Name: ${formData.name}
 Description: ${formData.description}
 Version: ${formData.version}
 Type: ${formData.type}
 Permissions: ${formData.permissions.join(', ') || 'none'}
+${formData.icon ? 'User Icon: Provided (include icon references in manifest)' : 'User Icon: NOT provided (do NOT include any icon references)'}
 
-Requirements:
-- Complete working code (no TODOs or placeholders)
-- Modern, beautiful UI design
-- Proper error handling and validation
-- Valid Manifest V3 format
+=== THINKING PHASE ===
+Before writing code, think through:
+1. What features does this extension need to fulfill the description?
+2. What files are required? (manifest, popup, background, content scripts, styles, utilities)
+3. How should files be organized? (use folders for clean structure)
+4. What modern UI patterns will make this look professional?
+5. What edge cases and error handling are needed?
 
+=== REQUIREMENTS ===
 
-Decide which files are needed based on the extension functionality. Return JSON format:
-\`\`\`json
+**Functionality:**
+- Fully functional, complete working code (NO placeholders, NO TODOs, NO "add your code here")
+- All features described must actually work
+- Proper error handling with user-friendly messages
+- Form validation where needed
+- Loading states for async operations
+- Data persistence using chrome.storage when appropriate
+
+**Modern UI/UX Design:**
+- Clean, modern aesthetic with smooth transitions
+- CSS custom properties (variables) for theming
+- Flexbox/Grid for layouts
+- Responsive design that works at different popup sizes
+- Proper spacing, typography, and visual hierarchy
+- Hover effects and micro-interactions
+- Loading spinners/skeletons for async content
+- Beautiful color scheme (dark mode friendly)
+- Rounded corners, subtle shadows, smooth animations
+- Icon usage from Unicode or CSS for visual elements
+
+**Code Quality:**
+- ES6+ JavaScript (const/let, arrow functions, async/await, destructuring)
+- Modular, well-organized code
+- Meaningful variable and function names
+- Comments for complex logic only
+- DRY principles - no repeated code
+
+**File Structure:**
+Create a professional file structure. Examples:
+- manifest.json (root)
+- popup/popup.html, popup/popup.css, popup/popup.js
+- scripts/background.js, scripts/content.js (if needed)
+- styles/common.css (shared styles if multiple pages)
+- utils/storage.js, utils/api.js (utility modules if needed)
+
+=== OUTPUT FORMAT ===
+For EACH file, use this EXACT format:
+
+FILE_START: manifest.json
 {
-  "manifest": "{\\"manifest_version\\": 3, ...}",
-  "popup": { "html": "...", "css": "...", "js": "..." },
-  "background": { "js": "..." },
-  "content": { "js": "...", "css": "..." },
-  "options": { "html": "...", "js": "...", "css": "..." }
+  "manifest_version": 3,
+  ...complete content...
 }
-\`\`\`
+FILE_END: manifest.json
 
-CRITICAL: Every file you reference in manifest.json MUST have its complete code included in the JSON response above. If manifest references "background.js", include "background": { "js": "complete code here" }.`;
+FILE_START: popup/popup.html
+<!DOCTYPE html>
+<html>...complete content...</html>
+FILE_END: popup/popup.html
+
+=== CRITICAL RULES ===
+1. ALWAYS include file extensions (.json, .html, .css, .js)
+2. Use folder paths (popup/popup.html NOT just popup.html)
+3. Every file referenced in manifest MUST be created
+4. manifest.json MUST be valid JSON
+${!formData.icon ? '5. DO NOT create icon files or add "icons" property to manifest - user has no icons' : '5. Include icon references in manifest'}
+6. Create as many files as needed for a professional extension
+7. CSS must be comprehensive - style EVERY element properly
+8. JavaScript must have proper error handling
+
+Now create a complete, professional ${formData.name} extension with all necessary files:`;
   };
 
   const callGeminiAPI = async (prompt) => {
@@ -380,11 +398,18 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
     
     const maxRetries = 3;
     let retryCount = 0;
-    let parsedCode = null;
 
     while (retryCount <= maxRetries) {
       try {
-        console.log(`API attempt ${retryCount + 1}/${maxRetries + 1} with streaming`);
+        console.log(`API attempt ${retryCount + 1}/${maxRetries + 1} with real-time streaming`);
+        
+        // Reset animation state for new attempt
+        setIsAnimating(true);
+        setAnimationFiles([]);
+        setCurrentAnimFileIndex(0);
+        setCurrentAnimText('');
+        setStreamingText('');
+        setReasoningText('');
         
         const response = await fetch(apiUrl, {
           method: "POST",
@@ -399,17 +424,37 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
             messages: [
               {
                 role: "system",
-                content: "You are an expert browser extension developer. CRITICAL: If you reference a file in manifest.json (like background.js, content.js, etc.), you MUST include that file's complete code in your response. Analyze requirements and decide which files are needed. Create production-ready code with beautiful, modern UI. Return complete working code - no placeholders. Always ensure every file referenced in manifest exists in your response."
+                content: `You are a senior browser extension developer with 10+ years experience. You create professional, production-ready extensions with beautiful modern UIs.
+
+YOUR APPROACH:
+1. First, analyze what the extension needs to do
+2. Plan the file structure (use folders: popup/, scripts/, styles/)
+3. Create comprehensive, fully-functional code
+4. Design beautiful UIs with modern CSS (flexbox, grid, variables, animations)
+
+OUTPUT FORMAT - Use EXACTLY this format for each file:
+FILE_START: folder/filename.ext
+[complete file content]
+FILE_END: folder/filename.ext
+
+MANDATORY RULES:
+1. ALWAYS include file extensions (.json, .html, .css, .js)
+2. Use folder paths (popup/popup.html, scripts/background.js)
+3. Create ALL files needed - be thorough (typically 4-8 files for a good extension)
+4. Every file in manifest.json MUST exist with complete code
+5. NO placeholders, NO TODOs, NO incomplete code
+6. CSS must be comprehensive - style every element beautifully
+7. Use CSS custom properties, smooth transitions, hover effects
+8. JavaScript must be ES6+ with proper error handling
+${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has none' : '9. Include icon references'}`
               },
               {
                 role: "user",
                 content: prompt
               }
             ],
-            temperature: 0.6,
-            max_tokens: 16000,
-            top_p: 0.95,
-            frequency_penalty: 0.2,
+            temperature: 0.7,
+            max_tokens: 24000,
             stream: true
           })
         });
@@ -435,10 +480,16 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
           throw new Error(`API Error: ${response.status} - ${errorText}`);
         }
 
-        // Handle streaming response
+        // Handle streaming response with real-time file parsing
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
-        let fullText = '';
+        
+        let buffer = '';
+        let currentFileName = null;
+        let currentFileContent = '';
+        const generatedFiles = [];
+        const createdFileNames = new Set(); // Track created files to prevent duplicates
+        let fileIndex = -1;
         
         while (true) {
           const { done, value } = await reader.read();
@@ -456,20 +507,127 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
                 const parsed = JSON.parse(data);
                 const delta = parsed.choices?.[0]?.delta || {};
                 
-                // Display reasoning and content as they stream
-                const reasoning = delta.reasoning || delta.reasoning_details?.[0]?.text || '';
-                const content = delta.content || '';
-                
+                // Capture reasoning for display
+                const reasoning = delta.reasoning || '';
                 if (reasoning) {
-                  setStreamingText(prev => (prev || '') + reasoning);
+                  setReasoningText(prev => prev + reasoning);
                 }
                 
-                if (content && !reasoning) {
-                  setStreamingText(prev => (prev || '') + content);
+                const content = delta.content || '';
+                if (!content) continue;
+                
+                buffer += content;
+                
+                // Check for FILE_START marker - wait for complete filename (must have newline after)
+                const startMatch = buffer.match(/FILE_START:\s*([^\n]+)\n/i);
+                if (startMatch && !currentFileName) {
+                  const newFileName = startMatch[1].trim();
+                  
+                  // Skip invalid or incomplete filenames
+                  if (!newFileName || newFileName.length < 2 || newFileName.endsWith(':')) {
+                    console.log(`⚠️ Skipping invalid filename: ${newFileName}`);
+                    buffer = buffer.substring(startMatch.index + startMatch[0].length);
+                    continue;
+                  }
+                  
+                  // Skip if file already created
+                  if (createdFileNames.has(newFileName)) {
+                    console.log(`⚠️ Skipping duplicate file: ${newFileName}`);
+                    buffer = buffer.substring(startMatch.index + startMatch[0].length);
+                    continue;
+                  }
+                  
+                  currentFileName = newFileName;
+                  fileIndex++;
+                  
+                  console.log(`🔵 Creating file: ${currentFileName}`);
+                  
+                  // Add new file to animation state
+                  setAnimationFiles(prev => [...prev, {
+                    name: currentFileName,
+                    icon: getFileIcon(currentFileName),
+                    content: '',
+                    complete: false
+                  }]);
+                  
+                  setCurrentAnimFileIndex(fileIndex);
+                  
+                  // Remove everything up to and including FILE_START line
+                  buffer = buffer.substring(startMatch.index + startMatch[0].length);
+                  currentFileContent = '';
+                  continue;
                 }
                 
-                if (content) {
-                  fullText += content;
+                // Check for FILE_END marker
+                const endMatch = buffer.match(/FILE_END:\s*([^\n]*)/i);
+                if (endMatch && currentFileName) {
+                  // Extract content before FILE_END and clean it
+                  let contentBeforeEnd = buffer.substring(0, endMatch.index);
+                  
+                  // Remove any trailing whitespace but preserve intentional formatting
+                  contentBeforeEnd = contentBeforeEnd.trimEnd();
+                  
+                  // Set final content (not append, use buffer as source of truth)
+                  currentFileContent = contentBeforeEnd;
+                  
+                  // Update display with final content
+                  setCurrentAnimText(currentFileContent);
+                  setAnimationFiles(prev =>
+                    prev.map((f, idx) =>
+                      idx === fileIndex
+                        ? { ...f, content: currentFileContent }
+                        : f
+                    )
+                  );
+                  
+                  console.log(`✅ Completed file: ${currentFileName} (${currentFileContent.length} chars)`);
+                  
+                  // Mark file as created
+                  createdFileNames.add(currentFileName);
+                  
+                  // Store completed file
+                  generatedFiles.push({
+                    name: currentFileName,
+                    content: currentFileContent
+                  });
+                  
+                  // Mark file as complete in UI
+                  setAnimationFiles(prev => 
+                    prev.map((f, idx) => 
+                      idx === fileIndex
+                        ? { ...f, content: currentFileContent, complete: true }
+                        : f
+                    )
+                  );
+                  
+                  // Small pause between files for better UX
+                  await new Promise(resolve => setTimeout(resolve, 500));
+                  
+                  // Remove everything up to and including FILE_END line
+                  const endLineEnd = buffer.indexOf('\n', endMatch.index);
+                  buffer = endLineEnd >= 0 ? buffer.substring(endLineEnd + 1) : '';
+                  currentFileName = null;
+                  currentFileContent = '';
+                  continue;
+                }
+                
+                // Only accumulate content if we're in a file AND buffer has no pending markers
+                if (currentFileName && !buffer.includes('FILE_START:') && !buffer.includes('FILE_END:')) {
+                  // Use buffer as source of truth, not raw content
+                  currentFileContent = buffer;
+                  
+                  // Update display in real-time
+                  setCurrentAnimText(currentFileContent);
+                  setAnimationFiles(prev =>
+                    prev.map((f, idx) =>
+                      idx === fileIndex
+                        ? { ...f, content: currentFileContent }
+                        : f
+                    )
+                  );
+                } else if (!currentFileName && !buffer.includes('FILE_START:')) {
+                  // Show other text in reasoning display
+                  setStreamingText(prev => prev + content);
                 }
               } catch (e) {
                 // Skip invalid JSON
@@ -478,126 +636,46 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
           }
         }
 
-        console.log('Stream complete, parsing response...');
-        const responseText = fullText;
+        console.log('✅ Stream complete. Files generated:', generatedFiles.length);
         
-        if (!responseText) {
-          console.error('No response content received');
-          throw new Error('No response content received from AI');
-        }
-
-        console.log('Parsing response text...');
+        // Store all files with full paths preserved
+        const structuredCode = {
+          allFiles: generatedFiles // Store all files with their full paths
+        };
         
-        // Try multiple extraction methods to find the JSON
-        let jsonString = null;
-        // Reset parsedCode for this attempt
-        parsedCode = null;
-        
-        // Method 1: Extract from code blocks with ```json markers
-        const codeBlockMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
-        if (codeBlockMatch && codeBlockMatch[1]) {
-          jsonString = codeBlockMatch[1].trim();
-          console.log('Extracted JSON from code block');
+        // Also extract common files for backward compatibility
+        generatedFiles.forEach(file => {
+          const fileName = file.name.split('/').pop();
           
-          try {
-            parsedCode = JSON.parse(jsonString);
-            console.log('Successfully parsed JSON from code block');
-            break; // Success - exit the retry loop
-          } catch (e) {
-            console.error('Failed to parse JSON from code block:', e);
-            // Continue to next extraction method
+          // Handle manifest with or without .json extension
+          if (fileName === 'manifest.json' || fileName === 'manifest') {
+            structuredCode.manifest = file.content;
+          } else if (fileName.startsWith('popup.')) {
+            if (!structuredCode.popup) structuredCode.popup = {};
+            const ext = fileName.split('.').pop();
+            structuredCode.popup[ext] = file.content;
+          } else if (fileName.startsWith('background.')) {
+            if (!structuredCode.background) structuredCode.background = {};
+            const ext = fileName.split('.').pop();
+            structuredCode.background[ext] = file.content;
+          } else if (fileName.startsWith('content.')) {
+            if (!structuredCode.content) structuredCode.content = {};
+            const ext = fileName.split('.').pop();
+            structuredCode.content[ext] = file.content;
+          } else if (fileName.startsWith('options.')) {
+            if (!structuredCode.options) structuredCode.options = {};
+            const ext = fileName.split('.').pop();
+            structuredCode.options[ext] = file.content;
           }
+        });
+        
+        if (!structuredCode.manifest) {
+          throw new Error('No manifest.json was generated');
         }
         
-        // Method 2: Look for the largest JSON object in the response
-        const jsonObjectMatch = responseText.match(/(\{[\s\S]*\})/);
-        if (jsonObjectMatch && jsonObjectMatch[1]) {
-          // Clean up excessive whitespace that might be causing parsing issues
-          let jsonString = jsonObjectMatch[1].trim();
-          
-          // Remove excessive newlines and whitespace padding in the JSON
-          jsonString = jsonString.replace(/\n{3,}/g, '\n\n');
-          
-          console.log('Extracted JSON object pattern');
-          
-          try {
-            parsedCode = JSON.parse(jsonString);
-            console.log('Successfully parsed JSON object');
-            break; // Success - exit the retry loop
-          } catch (e) {
-            console.error('Failed to parse JSON object:', e);
-            
-            // Additional attempt: Try to fix common JSON parsing issues
-            try {
-              // Try to fix truncated strings
-              const fixedJson = jsonString.replace(/([^\\])(")([^,:}\]]*$)/gm, '$1$2');
-              parsedCode = JSON.parse(fixedJson);
-              console.log('Successfully parsed JSON after fixing truncated strings');
-              break; // Success - exit the retry loop
-            } catch (e2) {
-              console.error('Failed second parsing attempt:', e2);
-            }
-          }
-        }
-        
-        // Method 3: Try to extract and construct a partial JSON
-        if (!parsedCode) {
-          console.log('Attempting to extract partial JSON components...');
-          
-          // Extract manifest.json section
-          const manifestMatch = responseText.match(/"manifest"\s*:\s*"((?:\\"|[^"])*?)"/);
-          // Extract popup HTML section
-          const popupHtmlMatch = responseText.match(/"html"\s*:\s*"((?:\\"|[^"])*?)"/);
-          // Extract popup CSS section
-          const popupCssMatch = responseText.match(/"css"\s*:\s*"((?:\\"|[^"])*?)"/);
-          // Extract popup JS section
-          const popupJsMatch = responseText.match(/"js"\s*:\s*"((?:\\"|[^"])*?)"/);
-          
-          // If we have at least the manifest, we can try to construct a partial response
-          if (manifestMatch && manifestMatch[1]) {
-            try {
-              const partialObj = {
-                manifest: manifestMatch[1].replace(/\\\\n/g, '\\n')
-              };
-              
-              // Add popup components if found
-              if (popupHtmlMatch && popupCssMatch && popupJsMatch) {
-                partialObj.popup = {
-                  html: popupHtmlMatch[1].replace(/\\\\n/g, '\\n'),
-                  css: popupCssMatch[1].replace(/\\\\n/g, '\\n'),
-                  js: popupJsMatch[1].replace(/\\\\n/g, '\\n')
-                };
-              }
-              
-              console.log('Created partial JSON from extracted components');
-              parsedCode = partialObj;
-              break; // Success - exit the retry loop
-            } catch (e) {
-              console.error('Failed to create partial JSON:', e);
-            }
-          }
-        }
-        
-        // If we've tried all methods and still failed
-        if (!parsedCode) {
-          retryCount++;
-          if (retryCount > maxRetries) {
-            console.error('All JSON parsing methods failed on final attempt');
-            throw new Error('Failed to parse API response - invalid JSON');
-          }
-          
-          const delay = Math.pow(2, retryCount) * 1000;
-          console.log(`JSON parsing failed. Retrying in ${delay/1000}s...`);
-          
-          setError({
-            type: 'warning',
-            message: `Response format issue. Retrying in ${delay/1000}s... (${retryCount}/${maxRetries + 1})`
-          });
-          
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
-        }
+        return { code: structuredCode };
       } catch (error) {
+        console.error('Error in generation:', error);
         retryCount++;
         
         if (retryCount > maxRetries) {
@@ -605,81 +683,19 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
           throw error;
         }
         
-        // Exponential backoff for any error
         const delay = Math.pow(2, retryCount) * 1000;
         console.log(`Error occurred. Retrying in ${delay/1000}s... (${retryCount}/${maxRetries + 1})`);
         
-        // Show retry message in UI
         setError({
           type: 'warning',
           message: `Error: ${error.message}. Retrying in ${delay/1000}s... (${retryCount}/${maxRetries + 1})`
         });
         
-        // Wait before retrying
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
     
-    // Check if parsedCode is null
-    if (!parsedCode) {
-      throw new Error('Unable to generate code. Please try again.');
-    }
-    
-    // Unescape JSON strings function
-    const unescapeJsonString = (str) => {
-      if (!str) return str;
-      try {
-        // If it's already valid JSON/HTML/CSS/JS, return as is
-        if (!str.includes('\\n') && !str.includes('\\"')) {
-          return str;
-        }
-        // Replace escaped newlines and quotes
-        return str
-          .replace(/\\n/g, '\n')
-          .replace(/\\"/g, '"')
-          .replace(/\\t/g, '\t')
-          .replace(/\\\\/g, '\\');
-      } catch (e) {
-        return str;
-      }
-    };
-    
-    // Unescape all code strings
-    if (parsedCode.manifest) {
-      parsedCode.manifest = unescapeJsonString(parsedCode.manifest);
-    }
-    if (parsedCode.popup) {
-      if (parsedCode.popup.html) parsedCode.popup.html = unescapeJsonString(parsedCode.popup.html);
-      if (parsedCode.popup.css) parsedCode.popup.css = unescapeJsonString(parsedCode.popup.css);
-      if (parsedCode.popup.js) parsedCode.popup.js = unescapeJsonString(parsedCode.popup.js);
-    }
-    if (parsedCode.content) {
-      if (parsedCode.content.js) parsedCode.content.js = unescapeJsonString(parsedCode.content.js);
-      if (parsedCode.content.css) parsedCode.content.css = unescapeJsonString(parsedCode.content.css);
-    }
-    if (parsedCode.background?.js) {
-      parsedCode.background.js = unescapeJsonString(parsedCode.background.js);
-    }
-    if (parsedCode.options) {
-      if (parsedCode.options.html) parsedCode.options.html = unescapeJsonString(parsedCode.options.html);
-      if (parsedCode.options.js) parsedCode.options.js = unescapeJsonString(parsedCode.options.js);
-      if (parsedCode.options.css) parsedCode.options.css = unescapeJsonString(parsedCode.options.css);
-    }
-    
-    // Remove icons from manifest if no icon provided
-    if (!formData.icon && parsedCode && parsedCode.manifest) {
-      try {
-        const manifestObj = JSON.parse(parsedCode.manifest);
-        if (manifestObj.icons) delete manifestObj.icons;
-        if (manifestObj.action && manifestObj.action.default_icon) delete manifestObj.action.default_icon;
-        if (manifestObj.browser_action && manifestObj.browser_action.default_icon) delete manifestObj.browser_action.default_icon;
-        parsedCode.manifest = JSON.stringify(manifestObj, null, 2);
-      } catch (e) {
-        console.warn('Could not parse manifest to remove icons');
-      }
-    }
-    
-    return { code: parsedCode };
+    throw new Error('Failed to generate extension after all retries');
   };
 
   const downloadExtension = async () => {
@@ -694,34 +710,38 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
     try {
       const zip = new JSZip();
     
-    // Add manifest
-    if (generatedCode.manifest) {
-      zip.file('manifest.json', generatedCode.manifest);
-    }
+    // Add all generated files with their full paths (including folders)
+    if (generatedCode.allFiles && generatedCode.allFiles.length > 0) {
+      generatedCode.allFiles.forEach(file => {
+        console.log(`Adding to ZIP: ${file.name}`);
+        zip.file(file.name, file.content);
+      });
+    } else {
+      // Fallback to old structure if allFiles not available
+      if (generatedCode.manifest) {
+        zip.file('manifest.json', generatedCode.manifest);
+      }
 
-    // Add popup files
-    if (generatedCode.popup) {
-      if (generatedCode.popup.html) zip.file('popup.html', generatedCode.popup.html);
-      if (generatedCode.popup.css) zip.file('popup.css', generatedCode.popup.css);
-      if (generatedCode.popup.js) zip.file('popup.js', generatedCode.popup.js);
-    }
+      if (generatedCode.popup) {
+        if (generatedCode.popup.html) zip.file('popup.html', generatedCode.popup.html);
+        if (generatedCode.popup.css) zip.file('popup.css', generatedCode.popup.css);
+        if (generatedCode.popup.js) zip.file('popup.js', generatedCode.popup.js);
+      }
 
-    // Add content scripts
-    if (generatedCode.content) {
-      if (generatedCode.content.js) zip.file('content.js', generatedCode.content.js);
-      if (generatedCode.content.css) zip.file('content.css', generatedCode.content.css);
-    }
+      if (generatedCode.content) {
+        if (generatedCode.content.js) zip.file('content.js', generatedCode.content.js);
+        if (generatedCode.content.css) zip.file('content.css', generatedCode.content.css);
+      }
 
-    // Add background script
-    if (generatedCode.background?.js) {
-      zip.file('background.js', generatedCode.background.js);
-    }
+      if (generatedCode.background?.js) {
+        zip.file('background.js', generatedCode.background.js);
+      }
 
-    // Add options page
-    if (generatedCode.options) {
-      if (generatedCode.options.html) zip.file('options.html', generatedCode.options.html);
-      if (generatedCode.options.js) zip.file('options.js', generatedCode.options.js);
-      if (generatedCode.options.css) zip.file('options.css', generatedCode.options.css);
+      if (generatedCode.options) {
+        if (generatedCode.options.html) zip.file('options.html', generatedCode.options.html);
+        if (generatedCode.options.js) zip.file('options.js', generatedCode.options.js);
+        if (generatedCode.options.css) zip.file('options.css', generatedCode.options.css);
+      }
     }
 
       // Generate ZIP file and download
@@ -898,60 +918,41 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
   );
 
   const renderStep4 = () => {
-    // Show typewriter animation
-    if (isAnimating || (generatedCode && !animationComplete)) {
-      const filesToShow = animationFiles.filter(file => {
-        if (file.key === 'manifest') return generatedCode?.manifest;
-        if (file.key === 'popup.html') return generatedCode?.popup?.html;
-        if (file.key === 'popup.css') return generatedCode?.popup?.css;
-        if (file.key === 'popup.js') return generatedCode?.popup?.js;
-        if (file.key === 'content.js') return generatedCode?.content?.js;
-        if (file.key === 'background.js') return generatedCode?.background?.js;
-        if (file.key === 'options.html') return generatedCode?.options?.html;
-        return false;
-      });
-      
-      // Safety check: ensure we have files to show and valid index
-      if (filesToShow.length === 0) {
-        return (
-          <div className="step-content">
-            <h3>⚠️ No Files Generated</h3>
-            <p>The AI didn't generate any files. Please try again.</p>
-          </div>
-        );
-      }
-      
-      const safeIndex = Math.min(currentAnimFileIndex, filesToShow.length - 1);
-      const currentFile = filesToShow[safeIndex];
-      
-      // Safety check: ensure currentFile exists
-      if (!currentFile) {
-        return (
-          <div className="step-content">
-            <h3>⚠️ Animation Error</h3>
-            <p>Could not load file animation. Please try again.</p>
-          </div>
-        );
-      }
+    // Show real-time animation while generating
+    if (isAnimating && animationFiles.length > 0) {
+      const safeIndex = Math.min(currentAnimFileIndex, animationFiles.length - 1);
+      const currentFile = animationFiles[safeIndex];
       
       return (
         <div className="step-content animation-view">
-          <h3>✨ Creating Extension Files</h3>
+          <h3>✨ AI Creating Extension Files</h3>
+          
+          {reasoningText && (
+            <div className="thinking-container">
+              <div className="thinking-animation">
+                <div className="thinking-dot"></div>
+                <div className="thinking-dot"></div>
+                <div className="thinking-dot"></div>
+              </div>
+              <h4 className="thinking-header">🧠 AI Reasoning</h4>
+              <pre className="thinking-text-stream">{reasoningText}</pre>
+            </div>
+          )}
           
           <div className="animation-container">
             <div className="file-tree">
               <div className="file-tree-header">
                 <span>📁 {formData.name || 'extension'}</span>
               </div>
-              {filesToShow.map((file, index) => (
+              {animationFiles.map((file, index) => (
                 <div 
-                  key={file.name}
-                  className={`file-tree-item ${index === safeIndex ? 'active' : ''} ${index < safeIndex ? 'completed' : ''}`}
+                  key={`${index}-${file.name}`}
+                  className={`file-tree-item ${index === safeIndex ? 'active' : ''} ${file.complete ? 'completed' : ''}`}
                 >
                   <span className="file-icon">{file.icon}</span>
                   <span className="file-name">{file.name}</span>
-                  {index < safeIndex && <span className="check-mark">✓</span>}
-                  {index === safeIndex && <span className="writing-indicator">...</span>}
+                  {file.complete && <span className="check-mark">✓</span>}
+                  {index === safeIndex && !file.complete && <span className="writing-indicator">...</span>}
                 </div>
               ))}
             </div>
@@ -959,15 +960,15 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
             <div className="code-editor">
               <div className="editor-header">
                 <span className="editor-tab active">
-                  {currentFile.icon} {currentFile.name}
+                  {currentFile?.icon} {currentFile?.name}
                 </span>
                 <span className="editor-status">
-                  {safeIndex + 1} / {filesToShow.length} files
+                  {safeIndex + 1} / {animationFiles.length} files
                 </span>
               </div>
               <pre className="editor-content">
                 {currentAnimText}
-                <span className="typing-cursor">▌</span>
+                {!currentFile?.complete && <span className="typing-cursor">▌</span>}
               </pre>
             </div>
           </div>
@@ -1025,35 +1026,47 @@ CRITICAL: Every file you reference in manifest.json MUST have its complete code 
     // Create array of generated files for carousel
     const generatedFiles = [];
     
-    if (generatedCode.manifest) {
-      generatedFiles.push({ name: 'manifest.json', content: generatedCode.manifest, icon: '📄' });
-    }
-    if (generatedCode.popup?.html) {
-      generatedFiles.push({ name: 'popup.html', content: generatedCode.popup.html, icon: '🌐' });
-    }
-    if (generatedCode.popup?.css) {
-      generatedFiles.push({ name: 'popup.css', content: generatedCode.popup.css, icon: '🎨' });
-    }
-    if (generatedCode.popup?.js) {
-      generatedFiles.push({ name: 'popup.js', content: generatedCode.popup.js, icon: '⚡' });
-    }
-    if (generatedCode.content?.js) {
-      generatedFiles.push({ name: 'content.js', content: generatedCode.content.js, icon: '📜' });
-    }
-    if (generatedCode.content?.css) {
-      generatedFiles.push({ name: 'content.css', content: generatedCode.content.css, icon: '🎨' });
-    }
-    if (generatedCode.background?.js) {
-      generatedFiles.push({ name: 'background.js', content: generatedCode.background.js, icon: '⚙️' });
-    }
-    if (generatedCode.options?.html) {
-      generatedFiles.push({ name: 'options.html', content: generatedCode.options.html, icon: '🌐' });
-    }
-    if (generatedCode.options?.js) {
-      generatedFiles.push({ name: 'options.js', content: generatedCode.options.js, icon: '⚡' });
-    }
-    if (generatedCode.options?.css) {
-      generatedFiles.push({ name: 'options.css', content: generatedCode.options.css, icon: '🎨' });
+    // Use allFiles if available (new format with folder paths)
+    if (generatedCode.allFiles && generatedCode.allFiles.length > 0) {
+      generatedCode.allFiles.forEach(file => {
+        generatedFiles.push({
+          name: file.name,
+          content: file.content,
+          icon: getFileIcon(file.name)
+        });
+      });
+    } else {
+      // Fallback to old structure
+      if (generatedCode.manifest) {
+        generatedFiles.push({ name: 'manifest.json', content: generatedCode.manifest, icon: '📄' });
+      }
+      if (generatedCode.popup?.html) {
+        generatedFiles.push({ name: 'popup.html', content: generatedCode.popup.html, icon: '🌐' });
+      }
+      if (generatedCode.popup?.css) {
+        generatedFiles.push({ name: 'popup.css', content: generatedCode.popup.css, icon: '🎨' });
+      }
+      if (generatedCode.popup?.js) {
+        generatedFiles.push({ name: 'popup.js', content: generatedCode.popup.js, icon: '⚡' });
+      }
+      if (generatedCode.content?.js) {
+        generatedFiles.push({ name: 'content.js', content: generatedCode.content.js, icon: '📜' });
+      }
+      if (generatedCode.content?.css) {
+        generatedFiles.push({ name: 'content.css', content: generatedCode.content.css, icon: '🎨' });
+      }
+      if (generatedCode.background?.js) {
+        generatedFiles.push({ name: 'background.js', content: generatedCode.background.js, icon: '⚙️' });
+      }
+      if (generatedCode.options?.html) {
+        generatedFiles.push({ name: 'options.html', content: generatedCode.options.html, icon: '🌐' });
+      }
+      if (generatedCode.options?.js) {
+        generatedFiles.push({ name: 'options.js', content: generatedCode.options.js, icon: '⚡' });
+      }
+      if (generatedCode.options?.css) {
+        generatedFiles.push({ name: 'options.css', content: generatedCode.options.css, icon: '🎨' });
+      }
     }
 
     const currentFile = generatedFiles[activeFileIndex] || generatedFiles[0];
