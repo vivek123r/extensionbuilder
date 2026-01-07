@@ -7,9 +7,19 @@ import StepTransition from './components/StepTransition';
 import { useAuth } from './contexts/AuthContext';
 import { saveExtension } from './services/extensionService';
 
+/**
+ * ============================================
+ * CreateExtensionNew Component
+ * Main 4-step wizard for creating browser extensions
+ * Flow: Basic Info -> Type & Config -> Permissions -> Generation
+ * ============================================
+ */
 const CreateExtensionNew = () => {
+  // === Hooks ===
   const navigate = useNavigate();
   const { currentUser } = useAuth();
+  
+  // === Form State - User input for extension configuration ===
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -21,23 +31,29 @@ const CreateExtensionNew = () => {
     targetBrowser: "chrome"
   });
 
-  const [activeStep, setActiveStep] = useState(1);
-  const [generatedCode, setGeneratedCode] = useState(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [error, setError] = useState(null);
-  const [activeFileIndex, setActiveFileIndex] = useState(0);
-  const [isAiLoading, setIsAiLoading] = useState(false);
+  // === UI State ===
+  const [activeStep, setActiveStep] = useState(1); // Current step in wizard (1-4)
+  const [generatedCode, setGeneratedCode] = useState(null); // Final generated extension files
+  const [isGenerating, setIsGenerating] = useState(false); // API call in progress
+  const [error, setError] = useState(null); // Error messages
+  const [activeFileIndex, setActiveFileIndex] = useState(0); // Currently viewed file in carousel
+  const [isAiLoading, setIsAiLoading] = useState(false); // AI feature suggestions loading
   const iconInputRef = useRef(null);
   
-  // Streaming and animation states
-  const [streamingText, setStreamingText] = useState('');
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [currentAnimFileIndex, setCurrentAnimFileIndex] = useState(0);
-  const [currentAnimText, setCurrentAnimText] = useState('');
-  const [animationComplete, setAnimationComplete] = useState(false);
-  const [animationFiles, setAnimationFiles] = useState([]);
-  const [reasoningText, setReasoningText] = useState('');
+  // === Real-time Streaming & Animation States - for displaying generation progress ===
+  const [streamingText, setStreamingText] = useState(''); // Raw API response text
+  const [isAnimating, setIsAnimating] = useState(false); // File generation animation playing
+  const [currentAnimFileIndex, setCurrentAnimFileIndex] = useState(0); // Current file in animation
+  const [currentAnimText, setCurrentAnimText] = useState(''); // Content of current file being displayed
+  const [animationComplete, setAnimationComplete] = useState(false); // Generation finished
+  const [animationFiles, setAnimationFiles] = useState([]); // All files in animation
+  const [reasoningText, setReasoningText] = useState(''); // AI reasoning/thinking process
 
+  // ============================================
+  // CONFIGURATION DATA
+  // ============================================
+  
+  // Extension type options available to users
   const extensionTypes = [
     { value: 'popup', label: 'Browser Action Popup', description: 'Extension with a popup interface' },
     { value: 'content-script', label: 'Content Script', description: 'Modifies web pages directly' },
@@ -45,6 +61,7 @@ const CreateExtensionNew = () => {
     { value: 'devtools', label: 'Developer Tools', description: 'Extends browser dev tools' }
   ];
 
+  // Browser permissions user can request for their extension
   const availablePermissions = [
     { id: 'activeTab', label: 'Active Tab', description: 'Access to the currently active tab' },
     { id: 'storage', label: 'Storage', description: 'Store and retrieve data' },
@@ -57,6 +74,7 @@ const CreateExtensionNew = () => {
     { id: 'scripting', label: 'Scripting', description: 'Execute scripts in web pages' }
   ];
 
+  // Target browser options for extension compatibility
   const browsers = [
     { value: 'chrome', label: 'Chrome' },
     { value: 'firefox', label: 'Firefox' },
@@ -64,11 +82,17 @@ const CreateExtensionNew = () => {
     { value: 'safari', label: 'Safari' }
   ];
 
+  // ============================================
+  // EVENT HANDLERS
+  // ============================================
+
+  // Update form data when user types in input/textarea fields
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  // Toggle permission selection when user clicks permission card
   const handlePermissionToggle = (permissionId) => {
     setFormData(prev => ({
       ...prev,
@@ -78,6 +102,7 @@ const CreateExtensionNew = () => {
     }));
   };
 
+  // Handle icon file upload with image type validation
   const handleIconUpload = (e) => {
     const file = e.target.files[0];
     if (file && file.type.startsWith('image/')) {
@@ -85,6 +110,12 @@ const CreateExtensionNew = () => {
     }
   };
 
+  // ============================================
+  // AI ENHANCEMENT - FEATURE SUGGESTIONS
+  // ============================================
+  
+  // Get AI-powered feature suggestions based on extension description
+  // Uses Gemini API with retry logic and exponential backoff for resilience
   const aiDescription = async (currentDescription) => {
     if (!currentDescription.trim()) {
       alert("Please enter a description first!");
@@ -132,7 +163,7 @@ Example format:
 
 Make the suggestions specific, actionable, and relevant to the described extension type.`;
 
-    // Add retry logic
+    // Configure retry logic with exponential backoff (2s, 4s, 8s waits)
     const maxRetries = 2;
     let retryCount = 0;
     
@@ -240,7 +271,11 @@ Make the suggestions specific, actionable, and relevant to the described extensi
     setIsAiLoading(false);
   };
 
-  // Helper function to get icon based on file extension
+  // ============================================
+  // UTILITY FUNCTIONS
+  // ============================================
+
+  // Get emoji icon based on file extension for visual identification in UI
   const getFileIcon = (filename) => {
     if (filename.endsWith('.json')) return '📄';
     if (filename.endsWith('.html')) return '🌐';
@@ -251,6 +286,12 @@ Make the suggestions specific, actionable, and relevant to the described extensi
     return '📁';
   };
 
+  // ============================================
+  // EXTENSION GENERATION - MAIN ORCHESTRATION
+  // ============================================
+
+  // Main orchestrator for extension generation
+  // Coordinates: prompt creation → API call → file storage → Firebase save
   const generateExtension = async () => {
     setIsGenerating(true);
     setError(null);
@@ -308,6 +349,8 @@ Make the suggestions specific, actionable, and relevant to the described extensi
     }
   };
 
+  // Build detailed, comprehensive prompt for AI code generation
+  // Includes all user specs, quality requirements, and output format instructions
   const createDetailedPrompt = () => {
     return `You are an expert browser extension developer. Create a professional, production-ready ${formData.targetBrowser} browser extension (Manifest V3).
 
@@ -392,10 +435,18 @@ ${!formData.icon ? '5. DO NOT create icon files or add "icons" property to manif
 Now create a complete, professional ${formData.name} extension with all necessary files:`;
   };
 
+  // ============================================
+  // API INTEGRATION - STREAMING CODE GENERATION
+  // ============================================
+
+  // Call OpenRouter API with streaming to generate extension files
+  // Parses FILE_START/FILE_END markers in real-time and displays progress to user
+  // Implements retry logic with exponential backoff for reliability
   const callGeminiAPI = async (prompt) => {
     const apiKey = process.env.REACT_APP_OPENROUTER_API_KEY;
     const apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
     
+    // Configure retry logic - will retry up to 3 times on failure
     const maxRetries = 3;
     let retryCount = 0;
 
@@ -480,16 +531,18 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
           throw new Error(`API Error: ${response.status} - ${errorText}`);
         }
 
-        // Handle streaming response with real-time file parsing
+        // Initialize reader for streaming response processing
+        // This allows real-time display of file creation progress to user
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         
-        let buffer = '';
-        let currentFileName = null;
-        let currentFileContent = '';
-        const generatedFiles = [];
-        const createdFileNames = new Set(); // Track created files to prevent duplicates
-        let fileIndex = -1;
+        // Stream parsing state - accumulate incomplete chunks until markers are found
+        let buffer = '';  // Collect JSON chunks until complete
+        let currentFileName = null;  // Filename of file currently being parsed
+        let currentFileContent = '';  // Accumulated content of current file
+        const generatedFiles = [];  // Array of completed files
+        const createdFileNames = new Set();  // Prevent duplicate files
+        let fileIndex = -1;  // Track file index for animation display
         
         while (true) {
           const { done, value } = await reader.read();
@@ -518,7 +571,8 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
                 
                 buffer += content;
                 
-                // Check for FILE_START marker - wait for complete filename (must have newline after)
+                // Parse FILE_START marker - indicates beginning of new file
+                // Requires newline after filename to ensure complete marker detection
                 const startMatch = buffer.match(/FILE_START:\s*([^\n]+)\n/i);
                 if (startMatch && !currentFileName) {
                   const newFileName = startMatch[1].trim();
@@ -558,7 +612,7 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
                   continue;
                 }
                 
-                // Check for FILE_END marker
+                // Parse FILE_END marker - indicates end of current file content
                 const endMatch = buffer.match(/FILE_END:\s*([^\n]*)/i);
                 if (endMatch && currentFileName) {
                   // Extract content before FILE_END and clean it
@@ -638,9 +692,9 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
 
         console.log('✅ Stream complete. Files generated:', generatedFiles.length);
         
-        // Store all files with full paths preserved
+        // Organize generated files into structured format for both new and legacy code paths
         const structuredCode = {
-          allFiles: generatedFiles // Store all files with their full paths
+          allFiles: generatedFiles  // All files with folder paths preserved
         };
         
         // Also extract common files for backward compatibility
@@ -698,6 +752,12 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
     throw new Error('Failed to generate extension after all retries');
   };
 
+  // ============================================
+  // FILE DOWNLOAD & PACKAGING
+  // ============================================
+
+  // Create ZIP archive with all generated files and trigger download to user
+  // Supports both new (allFiles with folder paths) and legacy code structures
   const downloadExtension = async () => {
     if (!generatedCode) {
       setError({
@@ -763,7 +823,12 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
     }
   };
 
-  // Render methods for each step
+  // ============================================
+  // STEP RENDERING - UI for each wizard step
+  // ============================================
+
+  // Step 1 - Basic Information
+  // Collect: name, description, version, author, target browser
   const renderStep1 = () => (
     <div className="step-content">
       <h3>Basic Information</h3>
@@ -858,6 +923,8 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
     </div>
   );
 
+  // Step 2 - Extension Type & Configuration
+  // Collect: extension type, optional icon upload
   const renderStep2 = () => (
     <div className="step-content">
       <h3>Extension Type & Configuration</h3>
@@ -892,6 +959,8 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
     </div>
   );
 
+  // Step 3 - Permissions Selection
+  // Collect: browser permissions extension requires
   const renderStep3 = () => (
     <div className="step-content">
       <h3>Permissions</h3>
@@ -917,6 +986,8 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
     </div>
   );
 
+  // Step 4 - Generation & Display
+  // Show: real-time generation progress, generated files, download button
   const renderStep4 = () => {
     // Show real-time animation while generating
     if (isAnimating && animationFiles.length > 0) {
@@ -1131,12 +1202,17 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
     );
   };
 
-  // Track step transitions and direction
+  // ============================================
+  // STEP NAVIGATION & TRANSITIONS
+  // ============================================
+
+  // Track step transitions with animation direction (forward/backward)
   const [stepTransition, setStepTransition] = useState(false);
   const [transitionDirection, setTransitionDirection] = useState('forward');
   const [previousStep, setPreviousStep] = useState(1);
 
-  // Function to handle step changes with transition effect
+  // Handle step navigation with visual transition animations
+  // Manages direction, triggers animation, and cleanup
   const handleStepChange = (newStep) => {
     // Determine direction
     const direction = newStep > activeStep ? 'forward' : 'backward';
@@ -1157,15 +1233,23 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
     }, 2500); // Increased duration to match longer CSS transitions
   };
 
+  // ============================================
+  // MAIN COMPONENT RENDER
+  // ============================================
+
   return (
     <div className="create-extension">
+      {/* Animated background */}
       <HyperspeedBackground stepTransition={stepTransition} />
+      {/* Step transition overlay animation */}
       <StepTransition 
         isActive={stepTransition} 
         direction={transitionDirection}
         currentStep={activeStep}
         previousStep={previousStep}
       />
+      
+      {/* Progress Bar - shows current position in 4-step wizard */}
       <div className="header">
         <div className="progress-bar">
           {[1, 2, 3, 4].map(step => (
@@ -1179,6 +1263,7 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
         </div>
       </div>
 
+      {/* Step Content Container - displays form for active step with transitions */}
       <div className="content">
         <div className={`step-content step-1 ${activeStep === 1 ? 'active' : ''}`} 
              style={{
@@ -1234,6 +1319,7 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
         </div>
       </div>
 
+      {/* Navigation Buttons - Previous, Next, Back to Home */}
       <div className="navigation">
         {activeStep > 1 && (
           <button
