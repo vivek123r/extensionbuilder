@@ -362,6 +362,34 @@ Type: ${formData.type}
 Permissions: ${formData.permissions.join(', ') || 'none'}
 ${formData.icon ? 'User Icon: Provided (include icon references in manifest)' : 'User Icon: NOT provided (do NOT include any icon references)'}
 
+${formData.type === 'popup' ? `🚨🚨🚨 CRITICAL: POPUP WINDOW DIMENSIONS - MANDATORY 🚨🚨🚨
+
+THE POPUP WILL HAVE NO WIDTH WITHOUT THIS! 
+The popup.css file MUST start with EXACTLY this:
+
+html, body {
+  width: 400px !important;
+  min-width: 400px !important;
+  min-height: 500px;
+  max-height: 600px;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+body {
+  width: 400px !important;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+COPY THIS EXACTLY - DO NOT MODIFY THE WIDTH VALUES!
+Without the !important flags, the popup will have no horizontal width!` : ''}
+
 === THINKING PHASE ===
 Before writing code, think through:
 1. What features does this extension need to fulfill the description?
@@ -391,6 +419,26 @@ Before writing code, think through:
 - Beautiful color scheme (dark mode friendly)
 - Rounded corners, subtle shadows, smooth animations
 - Icon usage from Unicode or CSS for visual elements
+
+**Popup Window Dimensions:**
+${formData.type === 'popup' ? `🚨 THE POPUP NEEDS WIDTH - USE !important:
+
+EXACT CSS REQUIRED at the TOP of popup.css:
+
+html, body {
+  width: 400px !important;
+  min-width: 400px !important;
+  min-height: 500px;
+  max-height: 600px;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+The !important is CRITICAL for width to work properly.
+Also set width on ALL container divs in your HTML.` : '- Not applicable for this extension type'}
 
 **Code Quality:**
 - ES6+ JavaScript (const/let, arrow functions, async/await, destructuring)
@@ -431,6 +479,7 @@ ${!formData.icon ? '5. DO NOT create icon files or add "icons" property to manif
 6. Create as many files as needed for a professional extension
 7. CSS must be comprehensive - style EVERY element properly
 8. JavaScript must have proper error handling
+${formData.type === 'popup' ? '9. 🚨 POPUP WIDTH IS MANDATORY: html, body { width: 400px !important; min-width: 400px !important; } - Use !important or width will not work!' : ''}
 
 Now create a complete, professional ${formData.name} extension with all necessary files:`;
   };
@@ -482,6 +531,7 @@ YOUR APPROACH:
 2. Plan the file structure (use folders: popup/, scripts/, styles/)
 3. Create comprehensive, fully-functional code
 4. Design beautiful UIs with modern CSS (flexbox, grid, variables, animations)
+5. ALWAYS set proper window dimensions for popup extensions
 
 OUTPUT FORMAT - Use EXACTLY this format for each file:
 FILE_START: folder/filename.ext
@@ -497,15 +547,20 @@ MANDATORY RULES:
 6. CSS must be comprehensive - style every element beautifully
 7. Use CSS custom properties, smooth transitions, hover effects
 8. JavaScript must be ES6+ with proper error handling
-${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has none' : '9. Include icon references'}`
+9. 🚨🚨 POPUP WIDTH CRITICAL: html, body { width: 400px !important; min-width: 400px !important; } - The !important is REQUIRED!
+${!formData.icon ? '10. DO NOT create icons or add "icons" to manifest - user has none' : '10. Include icon references'}`
               },
               {
                 role: "user",
                 content: prompt
               }
             ],
-            temperature: 0.7,
-            max_tokens: 24000,
+            temperature: 0.9,        // Higher creativity
+            top_p: 0.95,            // Broader sampling
+            top_k: 50,              // More token options
+            frequency_penalty: 0.3, // Reduce repetition
+            presence_penalty: 0.3,  // Encourage new topics
+            max_tokens: 32000,      // More thinking space
             stream: true
           })
         });
@@ -811,7 +866,7 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
       a.href = url;
       a.download = `${formData.name.replace(/\s+/g, '-').toLowerCase() || 'extension'}-files.zip`;
       document.body.appendChild(a);
-      a.click();
+      a.click(); 
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (error) {
