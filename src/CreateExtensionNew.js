@@ -362,34 +362,6 @@ Type: ${formData.type}
 Permissions: ${formData.permissions.join(', ') || 'none'}
 ${formData.icon ? 'User Icon: Provided (include icon references in manifest)' : 'User Icon: NOT provided (do NOT include any icon references)'}
 
-${formData.type === 'popup' ? `🚨🚨🚨 CRITICAL: POPUP WINDOW DIMENSIONS - MANDATORY 🚨🚨🚨
-
-THE POPUP WILL HAVE NO WIDTH WITHOUT THIS! 
-The popup.css file MUST start with EXACTLY this:
-
-html, body {
-  width: 400px !important;
-  min-width: 400px !important;
-  min-height: 500px;
-  max-height: 600px;
-  margin: 0;
-  padding: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  box-sizing: border-box;
-}
-
-body {
-  width: 400px !important;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-COPY THIS EXACTLY - DO NOT MODIFY THE WIDTH VALUES!
-Without the !important flags, the popup will have no horizontal width!` : ''}
-
 === THINKING PHASE ===
 Before writing code, think through:
 1. What features does this extension need to fulfill the description?
@@ -420,32 +392,68 @@ Before writing code, think through:
 - Rounded corners, subtle shadows, smooth animations
 - Icon usage from Unicode or CSS for visual elements
 
-**Popup Window Dimensions:**
-${formData.type === 'popup' ? `🚨 THE POPUP NEEDS WIDTH - USE !important:
-
-EXACT CSS REQUIRED at the TOP of popup.css:
-
-html, body {
-  width: 400px !important;
-  min-width: 400px !important;
-  min-height: 500px;
-  max-height: 600px;
-  margin: 0;
-  padding: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  box-sizing: border-box;
-}
-
-The !important is CRITICAL for width to work properly.
-Also set width on ALL container divs in your HTML.` : '- Not applicable for this extension type'}
-
 **Code Quality:**
 - ES6+ JavaScript (const/let, arrow functions, async/await, destructuring)
 - Modular, well-organized code
 - Meaningful variable and function names
 - Comments for complex logic only
 - DRY principles - no repeated code
+
+**CRITICAL VALIDATION CHECKLIST (MUST FOLLOW):**
+
+✓ JavaScript Rules:
+  - ALWAYS use 'use strict'; at the top of JS files
+  - ALL variables MUST be declared with const/let/var (NO implicit globals)
+  - ⚠️ CRITICAL: ALL document.getElementById/querySelector calls MUST be INSIDE DOMContentLoaded or after DOM loads
+  - NEVER select DOM elements at the top level of the script (they won't exist yet!)
+  - ALL getElementById() calls MUST check if element exists before use:
+    Example: const btn = document.getElementById('myBtn');
+             if (btn) { btn.addEventListener('click', handler); }
+  - ALL event listeners MUST verify element exists first
+  - ALL functions MUST have try-catch for error handling
+  - Math operations MUST handle errors (division by zero, invalid input)
+  - Use textContent for output (NOT innerHTML for user input)
+  
+  🚨 COMMON BUG TO AVOID:
+  // WRONG - selectors run before DOM exists!
+  const buttons = document.querySelectorAll('.btn');
+  document.addEventListener('DOMContentLoaded', () => {
+    buttons.forEach(btn => btn.addEventListener('click', handler)); // buttons is EMPTY!
+  });
+  
+  // CORRECT - selectors inside DOMContentLoaded
+  document.addEventListener('DOMContentLoaded', () => {
+    const buttons = document.querySelectorAll('.btn'); // Now elements exist!
+    buttons.forEach(btn => btn.addEventListener('click', handler));
+  });
+
+✓ HTML Rules:
+  - ALL element IDs referenced in JavaScript MUST exist in HTML
+  - ALL <script src="..."> paths MUST match actual generated file paths exactly
+  - ALL <link href="..."> paths MUST match actual generated file paths exactly
+  - Example: If JS uses getElementById('calculate'), HTML MUST have <button id="calculate">
+
+✓ Manifest.json Rules:
+  - MUST be valid JSON (NO trailing commas)
+  - ALL file paths in manifest MUST match actual generated files
+  - Test that "action.default_popup", "background.service_worker" paths are correct
+  - Validate ALL required Manifest V3 fields exist
+
+✓ Calculator-Specific Rules (if making calculator):
+  - Declare state variables: let currentValue = '0'; let previousValue = ''; let operation = null;
+  - Each button click handler MUST validate input is valid
+  - Division operation MUST check for zero: if (divisor === 0) { display.textContent = 'Error'; return; }
+  - Clear button MUST reset ALL state variables
+  - Use parseFloat() and check isNaN() before calculations
+  - Display updates use textContent (safer than innerHTML)
+  - Example button handler:
+    const btn = document.getElementById('btn-5');
+    if (btn) {
+      btn.addEventListener('click', () => {
+        currentValue += '5';
+        display.textContent = currentValue;
+      });
+    }
 
 **File Structure:**
 Create a professional file structure. Examples:
@@ -479,7 +487,6 @@ ${!formData.icon ? '5. DO NOT create icon files or add "icons" property to manif
 6. Create as many files as needed for a professional extension
 7. CSS must be comprehensive - style EVERY element properly
 8. JavaScript must have proper error handling
-${formData.type === 'popup' ? '9. 🚨 POPUP WIDTH IS MANDATORY: html, body { width: 400px !important; min-width: 400px !important; } - Use !important or width will not work!' : ''}
 
 Now create a complete, professional ${formData.name} extension with all necessary files:`;
   };
@@ -520,7 +527,7 @@ Now create a complete, professional ${formData.name} extension with all necessar
             "X-Title": "Extension Builder"
           },
           body: JSON.stringify({
-            model: "xiaomi/mimo-v2-flash:free",
+            model: "qwen/qwen3-coder:free",
             messages: [
               {
                 role: "system",
@@ -531,7 +538,7 @@ YOUR APPROACH:
 2. Plan the file structure (use folders: popup/, scripts/, styles/)
 3. Create comprehensive, fully-functional code
 4. Design beautiful UIs with modern CSS (flexbox, grid, variables, animations)
-5. ALWAYS set proper window dimensions for popup extensions
+5. VALIDATE your code against the checklist below BEFORE outputting
 
 OUTPUT FORMAT - Use EXACTLY this format for each file:
 FILE_START: folder/filename.ext
@@ -547,20 +554,57 @@ MANDATORY RULES:
 6. CSS must be comprehensive - style every element beautifully
 7. Use CSS custom properties, smooth transitions, hover effects
 8. JavaScript must be ES6+ with proper error handling
-9. 🚨🚨 POPUP WIDTH CRITICAL: html, body { width: 400px !important; min-width: 400px !important; } - The !important is REQUIRED!
-${!formData.icon ? '10. DO NOT create icons or add "icons" to manifest - user has none' : '10. Include icon references'}`
+${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has none' : '9. Include icon references'}
+
+🚨 VALIDATION CHECKLIST (TEST YOUR CODE):
+
+✓ JavaScript Validation:
+  - Add 'use strict'; at top of all JS files
+  - ALL variables declared with const/let (NO undeclared variables)
+  - ⚠️ CRITICAL: ALL DOM selectors (getElementById, querySelector, querySelectorAll) MUST be INSIDE DOMContentLoaded
+  - NEVER select elements at top level - they don't exist yet!
+  - ALL document.getElementById() wrapped with null check
+  - Example: const el = document.getElementById('id'); if (el) { /* use el */ }
+  - ALL math operations in try-catch blocks
+  - Division by zero returns error message
+  - NO syntax errors, NO undefined variables
+  
+  ⛔ NEVER DO THIS (most common bug!):
+  const display = document.getElementById('display'); // WRONG - runs immediately!
+  document.addEventListener('DOMContentLoaded', () => {
+    display.textContent = '0'; // display is NULL because DOM wasn't ready!
+  });
+  
+  ✅ ALWAYS DO THIS:
+  document.addEventListener('DOMContentLoaded', () => {
+    const display = document.getElementById('display'); // CORRECT - DOM is ready
+    if (display) display.textContent = '0';
+  });
+
+✓ HTML Validation:
+  - Every ID used in JS exists in HTML (getElementById('foo') → <div id="foo">)
+  - All <script src> and <link href> paths match generated files exactly
+  - No typos in element IDs
+
+✓ Manifest Validation:
+  - Valid JSON with NO trailing commas
+  - All file paths exist in your generated files
+  - All required Manifest V3 fields present
+
+✓ Calculator Apps Must:
+  - Declare state: let currentValue='0', previousValue='', operation=null
+  - Check division by zero: if(b===0){showError();return;}
+  - Validate all inputs with parseFloat() and isNaN() checks
+  - Use textContent for display (NOT innerHTML)
+  - Clear function resets all state variables`
               },
               {
                 role: "user",
                 content: prompt
               }
             ],
-            temperature: 0.9,        // Higher creativity
-            top_p: 0.95,            // Broader sampling
-            top_k: 50,              // More token options
-            frequency_penalty: 0.3, // Reduce repetition
-            presence_penalty: 0.3,  // Encourage new topics
-            max_tokens: 32000,      // More thinking space
+            temperature: 0.7,
+            max_tokens: 24000,
             stream: true
           })
         });
@@ -866,7 +910,7 @@ ${!formData.icon ? '10. DO NOT create icons or add "icons" to manifest - user ha
       a.href = url;
       a.download = `${formData.name.replace(/\s+/g, '-').toLowerCase() || 'extension'}-files.zip`;
       document.body.appendChild(a);
-      a.click(); 
+      a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (error) {
