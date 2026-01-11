@@ -125,8 +125,9 @@ const CreateExtensionNew = () => {
     setIsAiLoading(true);
     setError(null);
 
-    const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
+    // Using free Qwen model for feature suggestions
+    const apiKey = process.env.REACT_APP_OPENROUTER_API_KEY;
+    const apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
     const prompt = `Based on the following extension description, generate a comprehensive list of specific tasks and features that this browser extension should include.
 
 **Extension Description:** "${currentDescription}"
@@ -173,15 +174,22 @@ Make the suggestions specific, actionable, and relevant to the described extensi
         
         const response = await fetch(apiUrl, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+            "HTTP-Referer": "http://localhost:3000",
+            "X-Title": "Extension Builder"
+          },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.7,
-              topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 2048,
-            }
+            model: "qwen/qwen3-coder:free",
+            messages: [
+              {
+                role: "user",
+                content: prompt
+              }
+            ],
+            temperature: 0.7,
+            max_tokens: 4000
           }),
         });
 
@@ -216,15 +224,8 @@ Make the suggestions specific, actionable, and relevant to the described extensi
       const data = await response.json();
       console.log('API Response:', data);
       
-      // Better response parsing with multiple fallbacks
-      let aiSuggestions = null;
-      
-      if (data.candidates && data.candidates[0]) {
-        const candidate = data.candidates[0];
-        if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {
-          aiSuggestions = candidate.content.parts[0].text;
-        }
-      }
+      // Parse OpenRouter/Claude response
+      const aiSuggestions = data.choices?.[0]?.message?.content;
       
       if (!aiSuggestions) {
         console.error('No AI suggestions found in response:', data);
@@ -533,6 +534,36 @@ Now create a complete, professional ${formData.name} extension with all necessar
                 role: "system",
                 content: `You are a senior browser extension developer with 10+ years experience. You create professional, production-ready extensions with beautiful modern UIs.
 
+🧠 CRITICAL: FIRST OUTPUT YOUR REASONING BEFORE ANY CODE
+
+Before generating ANY files, you MUST output your detailed reasoning process like this:
+
+<REASONING>
+1. Requirements Analysis:
+   - [Analyze what the user wants in detail]
+   
+2. Architecture Planning:
+   - [List all required files and folder structure]
+   - [Explain how components interact]
+   
+3. Edge Cases & Validation:
+   - [List potential problems and how to handle them]
+   - [Identify validation needs]
+   
+4. UI/UX Design Plan:
+   - [Describe the visual design approach]
+   - [List animations and interactions]
+   
+5. Quality Checklist:
+   - [Verify DOMContentLoaded usage]
+   - [Confirm null checks]
+   - [Validate manifest paths]
+</REASONING>
+
+Take 30-60 seconds to write thorough reasoning. Be detailed and specific.
+
+ONLY AFTER completing your reasoning analysis should you begin with FILE_START markers.
+
 YOUR APPROACH:
 1. First, analyze what the extension needs to do
 2. Plan the file structure (use folders: popup/, scripts/, styles/)
@@ -604,8 +635,13 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
               }
             ],
             temperature: 0.7,
-            max_tokens: 24000,
-            stream: true
+            max_tokens: 80000,
+            stream: true,
+            thinking: {
+              type: "enabled",
+              budget_tokens: 8000
+            },
+            top_p: 0.95,
           })
         });
 
@@ -659,16 +695,25 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
                 const parsed = JSON.parse(data);
                 const delta = parsed.choices?.[0]?.delta || {};
                 
-                // Capture reasoning for display
-                const reasoning = delta.reasoning || '';
-                if (reasoning) {
-                  setReasoningText(prev => prev + reasoning);
-                }
-                
                 const content = delta.content || '';
                 if (!content) continue;
                 
                 buffer += content;
+                
+                // Capture reasoning section if present (before FILE_START markers)
+                if (buffer.includes('<REASONING>') && buffer.includes('</REASONING>')) {
+                  const reasoningMatch = buffer.match(/<REASONING>([\s\S]*?)<\/REASONING>/);
+                  if (reasoningMatch && reasoningMatch[1]) {
+                    const reasoningContent = reasoningMatch[1].trim();
+                    setReasoningText(reasoningContent);
+                    // Auto-hide reasoning after 5 seconds
+                    setTimeout(() => {
+                      setReasoningText('');
+                    }, 100);
+                    // Remove the reasoning section from buffer
+                    buffer = buffer.replace(/<REASONING>[\s\S]*?<\/REASONING>/, '');
+                  }
+                }
                 
                 // Parse FILE_START marker - indicates beginning of new file
                 // Requires newline after filename to ensure complete marker detection
