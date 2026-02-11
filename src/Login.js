@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
+import { sendPasswordResetEmail } from 'firebase/auth';
+import { auth } from './firebase';
 import HyperspeedBackground from './components/HyperspeedBackground';
 import './Login.css';
 
@@ -13,6 +15,11 @@ const Login = () => {
   });
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetMessage, setResetMessage] = useState('');
+  const [resetError, setResetError] = useState('');
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -74,6 +81,57 @@ const Login = () => {
     }
   };
 
+  const handleForgotPassword = () => {
+    setShowResetModal(true);
+    setResetEmail(formData.email); // Pre-fill with login email if available
+    setResetMessage('');
+    setResetError('');
+  };
+
+  const handlePasswordReset = async (e) => {
+    e.preventDefault();
+    
+    if (!resetEmail) {
+      setResetError('Please enter your email address');
+      return;
+    }
+
+    setResetLoading(true);
+    setResetError('');
+    setResetMessage('');
+
+    try {
+      await sendPasswordResetEmail(auth, resetEmail);
+      setResetMessage('Password reset email sent! Check your inbox.');
+      setTimeout(() => {
+        setShowResetModal(false);
+        setResetEmail('');
+        setResetMessage('');
+      }, 3000);
+    } catch (error) {
+      console.error('Password reset error:', error);
+      
+      if (error.code === 'auth/user-not-found') {
+        setResetError('No account found with this email');
+      } else if (error.code === 'auth/invalid-email') {
+        setResetError('Invalid email address');
+      } else if (error.code === 'auth/too-many-requests') {
+        setResetError('Too many requests. Please try again later');
+      } else {
+        setResetError('Failed to send reset email. Please try again');
+      }
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  const closeResetModal = () => {
+    setShowResetModal(false);
+    setResetEmail('');
+    setResetMessage('');
+    setResetError('');
+  };
+
   return (
     <div className="login-container">
       <HyperspeedBackground />
@@ -107,7 +165,17 @@ const Login = () => {
           </div>
 
           <div className="form-group">
-            <label htmlFor="password">Password</label>
+            <div className="password-header">
+              <label htmlFor="password">Password</label>
+              <button 
+                type="button" 
+                className="forgot-password-link"
+                onClick={handleForgotPassword}
+                disabled={loading}
+              >
+                Forgot Password?
+              </button>
+            </div>
             <input
               type="password"
               id="password"
@@ -161,6 +229,77 @@ const Login = () => {
           </p>
         </div>
       </div>
+
+      {showResetModal && (
+        <div className="modal-overlay" onClick={closeResetModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Reset Password</h2>
+              <button className="close-btn" onClick={closeResetModal}>
+                ×
+              </button>
+            </div>
+
+            <p className="modal-description">
+              Enter your email address and we'll send you a link to reset your password.
+            </p>
+
+            {resetMessage && (
+              <div className="success-banner">
+                <span>✓</span>
+                <p>{resetMessage}</p>
+              </div>
+            )}
+
+            {resetError && (
+              <div className="error-banner">
+                <span>⚠️</span>
+                <p>{resetError}</p>
+              </div>
+            )}
+
+            <form onSubmit={handlePasswordReset} className="reset-form">
+              <div className="form-group">
+                <label htmlFor="reset-email">Email</label>
+                <input
+                  type="email"
+                  id="reset-email"
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  placeholder="your@email.com"
+                  disabled={resetLoading}
+                  autoComplete="email"
+                />
+              </div>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={closeResetModal}
+                  disabled={resetLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={resetLoading}
+                >
+                  {resetLoading ? (
+                    <>
+                      <span className="spinner-small"></span>
+                      <span>Sending...</span>
+                    </>
+                  ) : (
+                    'Send Reset Link'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

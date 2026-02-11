@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import JSZip from 'jszip';
 import './CreateExtensionNew.css';
@@ -6,6 +6,7 @@ import HyperspeedBackground from './components/HyperspeedBackground';
 import StepTransition from './components/StepTransition';
 import { useAuth } from './contexts/AuthContext';
 import { saveExtension } from './services/extensionService';
+import { checkAgentHealth, generateWithAgent, convertAgentFilesToCode, modifyWithAgent } from './services/agentService';
 
 /**
  * ============================================
@@ -48,6 +49,27 @@ const CreateExtensionNew = () => {
   const [animationComplete, setAnimationComplete] = useState(false); // Generation finished
   const [animationFiles, setAnimationFiles] = useState([]); // All files in animation
   const [reasoningText, setReasoningText] = useState(''); // AI reasoning/thinking process
+  
+  // === Agent Mode States ===
+  const [useAgent, setUseAgent] = useState(false); // Toggle for using LangGraph agent
+  const [agentAvailable, setAgentAvailable] = useState(false); // Is agent server running
+  const [agentStatus, setAgentStatus] = useState('checking'); // 'checking', 'available', 'unavailable'
+  
+  // === Modification States ===
+  const [projectId, setProjectId] = useState(''); // Project ID for vector DB
+  const [modificationInput, setModificationInput] = useState(''); // User's modification request
+  const [isModifying, setIsModifying] = useState(false); // Currently modifying
+
+  // Check agent availability on mount
+  useEffect(() => {
+    const checkAgent = async () => {
+      setAgentStatus('checking');
+      const isAvailable = await checkAgentHealth();
+      setAgentAvailable(isAvailable);
+      setAgentStatus(isAvailable ? 'available' : 'unavailable');
+    };
+    checkAgent();
+  }, []);
 
   // ============================================
   // CONFIGURATION DATA
@@ -102,6 +124,34 @@ const CreateExtensionNew = () => {
     }));
   };
 
+  // Handle editing file content - updates both animationFiles and generatedCode
+  const handleFileContentEdit = (fileIndex, newContent) => {
+    // Update animation files (used during generation)
+    setAnimationFiles(prev => 
+      prev.map((f, idx) => 
+        idx === fileIndex ? { ...f, content: newContent } : f
+      )
+    );
+    
+    // Update current animation text if this is the active file
+    if (fileIndex === currentAnimFileIndex) {
+      setCurrentAnimText(newContent);
+    }
+    
+    // Update generated code (used after generation is complete)
+    if (generatedCode) {
+      setGeneratedCode(prev => {
+        if (prev.allFiles && prev.allFiles.length > 0) {
+          const updatedAllFiles = prev.allFiles.map((f, idx) => 
+            idx === fileIndex ? { ...f, content: newContent } : f
+          );
+          return { ...prev, allFiles: updatedAllFiles };
+        }
+        return prev;
+      });
+    }
+  };
+
   // Handle icon file upload with image type validation
   const handleIconUpload = (e) => {
     const file = e.target.files[0];
@@ -125,9 +175,8 @@ const CreateExtensionNew = () => {
     setIsAiLoading(true);
     setError(null);
 
-    // Using free Qwen model for feature suggestions
-    const apiKey = process.env.REACT_APP_OPENROUTER_API_KEY;
-    const apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+    const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
     const prompt = `Based on the following extension description, generate a comprehensive list of specific tasks and features that this browser extension should include.
 
 **Extension Description:** "${currentDescription}"
@@ -174,22 +223,15 @@ Make the suggestions specific, actionable, and relevant to the described extensi
         
         const response = await fetch(apiUrl, {
           method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`,
-            "HTTP-Referer": "http://localhost:3000",
-            "X-Title": "Extension Builder"
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "qwen/qwen3-coder:free",
-            messages: [
-              {
-                role: "user",
-                content: prompt
-              }
-            ],
-            temperature: 0.7,
-            max_tokens: 4000
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.7,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 2048,
+            }
           }),
         });
 
@@ -224,8 +266,15 @@ Make the suggestions specific, actionable, and relevant to the described extensi
       const data = await response.json();
       console.log('API Response:', data);
       
-      // Parse OpenRouter/Claude response
-      const aiSuggestions = data.choices?.[0]?.message?.content;
+      // Better response parsing with multiple fallbacks
+      let aiSuggestions = null;
+      
+      if (data.candidates && data.candidates[0]) {
+        const candidate = data.candidates[0];
+        if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {
+          aiSuggestions = candidate.content.parts[0].text;
+        }
+      }
       
       if (!aiSuggestions) {
         console.error('No AI suggestions found in response:', data);
@@ -302,6 +351,12 @@ Make the suggestions specific, actionable, and relevant to the described extensi
     setAnimationComplete(false);
     setActiveStep(4); // Move to step 4 immediately to show streaming
 
+    // Use agent mode if enabled and available
+    if (useAgent && agentAvailable) {
+      await generateWithAgentMode();
+      return;
+    }
+
     try {
       const prompt = createDetailedPrompt();
       console.log('Sending prompt to API...');
@@ -315,7 +370,7 @@ Make the suggestions specific, actionable, and relevant to the described extensi
         }
         setGeneratedCode(response.code);
         setIsGenerating(false);
-        setIsAnimating(false);
+        // Keep workspace view visible - files are in animationFiles with complete: true
         setAnimationComplete(true);
         
         // Save extension to Firebase if user is logged in
@@ -346,7 +401,287 @@ Make the suggestions specific, actionable, and relevant to the described extensi
         message: err.message || 'Failed to generate extension'
       });
       setIsGenerating(false);
+      // Keep animating true if we have files to show
+      if (animationFiles.length === 0) {
+        setIsAnimating(false);
+      }
+    }
+  };
+
+  // ============================================
+  // AGENT-BASED GENERATION
+  // ============================================
+
+  // Generate extension using the LangGraph agent with streaming
+  const generateWithAgentMode = async () => {
+    console.log('🤖 Using LangGraph Agent for generation...');
+    setIsAnimating(true);
+    setReasoningText('');
+
+    let fileIndex = -1;
+
+    try {
+      await generateWithAgent(formData, {
+        onStart: (data) => {
+          setReasoningText(prev => prev + `🚀 ${data.message}\n`);
+        },
+        
+        onThinking: (text) => {
+          setReasoningText(prev => prev + `${text}\n`);
+        },
+        
+        onToolCall: (data) => {
+          const argsStr = JSON.stringify(data.args).substring(0, 80);
+          setReasoningText(prev => prev + `🔧 ${data.tool}(${argsStr}...)\n`);
+        },
+        
+        onToolResult: (data) => {
+          setReasoningText(prev => prev + `   ✓ ${data.result}\n`);
+        },
+        
+        onFileStart: (data) => {
+          fileIndex++;
+          console.log(`📄 Agent creating: ${data.file}`);
+          
+          // Add file to animation (initially empty)
+          setAnimationFiles(prev => [...prev, {
+            name: data.file,
+            icon: getFileIcon(data.file),
+            content: '',
+            complete: false
+          }]);
+          
+          setCurrentAnimFileIndex(fileIndex);
+          setCurrentAnimText('');
+        },
+        
+        onFileContent: (data) => {
+          // Update file content in real-time
+          setCurrentAnimText(data.content);
+          setAnimationFiles(prev => 
+            prev.map((f, idx) => 
+              f.name === data.file ? { ...f, content: data.content } : f
+            )
+          );
+        },
+        
+        onFileComplete: (data) => {
+          console.log(`✅ Agent completed: ${data.file}`);
+          
+          // Mark file as complete
+          setAnimationFiles(prev => 
+            prev.map(f => 
+              f.name === data.file 
+                ? { ...f, content: data.content, complete: true }
+                : f
+            )
+          );
+        },
+        
+        onComplete: async (data) => {
+          console.log('✅ Agent generation complete:', data.files?.length, 'files');
+          setReasoningText(prev => prev + `\n✅ ${data.summary || 'Generation complete!'}\n`);
+          
+          // Store project ID for future modifications
+          if (data.project_id) {
+            setProjectId(data.project_id);
+          }
+          
+          // Convert agent files to extension code format
+          const code = convertAgentFilesToCode(data.files || []);
+          
+          if (!code.manifest && !code.allFiles?.some(f => f.name.includes('manifest'))) {
+            throw new Error('Agent did not generate manifest.json');
+          }
+          
+          setGeneratedCode(code);
+          setIsGenerating(false);
+          // Keep isAnimating true so workspace view stays visible
+          // Files are already in animationFiles with complete: true
+          setAnimationComplete(true);
+          
+          // Save to Firebase if logged in
+          if (currentUser) {
+            try {
+              console.log('Saving agent-generated extension for user:', currentUser.uid);
+              await saveExtension(currentUser.uid, {
+                name: formData.name,
+                description: formData.description,
+                version: formData.version,
+                type: formData.type,
+                permissions: formData.permissions,
+                author: formData.author,
+                targetBrowser: formData.targetBrowser,
+                generatedCode: code
+              });
+              console.log('Extension saved to database');
+            } catch (saveError) {
+              console.error('Failed to save extension:', saveError);
+            }
+          }
+        },
+        
+        onError: (error) => {
+          console.error('Agent error:', error);
+          setReasoningText(prev => prev + `\n❌ Error: ${error.message}\n`);
+          setError({
+            type: 'error',
+            message: `Agent error: ${error.message}`
+          });
+          setIsGenerating(false);
+          setIsAnimating(false);
+        }
+      });
+      
+    } catch (err) {
+      console.error('Agent generation failed:', err);
+      setError({
+        type: 'error',
+        message: `Agent generation failed: ${err.message}. Try disabling Agent Mode.`
+      });
+      setIsGenerating(false);
       setIsAnimating(false);
+    }
+  };
+
+  // Handle extension modification using AI agent
+  const handleModifyExtension = async () => {
+    if (!modificationInput.trim() || isModifying) return;
+    
+    console.log('🔧 Modifying extension with request:', modificationInput);
+    setIsModifying(true);
+    setAnimationComplete(false);  // Reset to show progress
+    
+    // Add user message to chat in a styled format
+    const userMessage = modificationInput;
+    setReasoningText(prev => prev + `\n\n💬 You: ${userMessage}\n\n`);
+    
+    // Get current files from animationFiles
+    const currentFiles = animationFiles.map(f => ({
+      name: f.name,
+      content: f.content
+    }));
+    
+    try {
+      await modifyWithAgent({
+        projectId: projectId,
+        name: formData.name,
+        description: formData.description,
+        modification: userMessage,
+        files: currentFiles
+      }, {
+        onStart: (data) => {
+          setReasoningText(prev => prev + `🤖 ${data.message}\n`);
+        },
+        
+        onThinking: (text) => {
+          setReasoningText(prev => prev + `${text}\n`);
+        },
+        
+        onFileStart: (data) => {
+          console.log(`📄 Modifying: ${data.file}`);
+          // Mark file as being modified (incomplete)
+          setAnimationFiles(prev => 
+            prev.map(f => 
+              f.name === data.file 
+                ? { ...f, complete: false }
+                : f
+            )
+          );
+          setCurrentAnimText('');
+          // Select the file being modified
+          const fileIdx = animationFiles.findIndex(f => f.name === data.file);
+          if (fileIdx >= 0) {
+            setCurrentAnimFileIndex(fileIdx);
+          }
+        },
+        
+        onFileContent: (data) => {
+          setCurrentAnimText(data.content);
+          setAnimationFiles(prev => 
+            prev.map(f => 
+              f.name === data.file ? { ...f, content: data.content } : f
+            )
+          );
+        },
+        
+        onFileComplete: (data) => {
+          console.log(`✅ Modified: ${data.file}`);
+          setAnimationFiles(prev => 
+            prev.map(f => 
+              f.name === data.file 
+                ? { ...f, content: data.content, complete: true }
+                : f
+            )
+          );
+        },
+        
+        onFileDeleted: (data) => {
+          console.log(`🗑️ Deleted: ${data.file}`);
+          setAnimationFiles(prev => prev.filter(f => f.name !== data.file));
+          setReasoningText(prev => prev + `🗑️ Deleted: ${data.file}\n`);
+        },
+        
+        onComplete: async (data) => {
+          console.log('✅ Modification complete:', data.modifiedFiles?.length, 'files modified');
+          setReasoningText(prev => prev + `\n✅ ${data.summary || 'Modification complete!'}\n`);
+          
+          // Update project ID for future modifications
+          if (data.projectId) {
+            setProjectId(data.projectId);
+          }
+          
+          // Update all files with the new content
+          if (data.files && data.files.length > 0) {
+            setAnimationFiles(data.files.map(f => ({
+              name: f.name,
+              icon: getFileIcon(f.name),
+              content: f.content,
+              complete: true
+            })));
+            
+            // Also update generatedCode
+            const code = convertAgentFilesToCode(data.files);
+            setGeneratedCode(code);
+            
+            // Save updated extension to Firebase
+            if (currentUser) {
+              try {
+                await saveExtension(currentUser.uid, {
+                  name: formData.name,
+                  description: formData.description,
+                  version: formData.version,
+                  type: formData.type,
+                  permissions: formData.permissions,
+                  author: formData.author,
+                  targetBrowser: formData.targetBrowser,
+                  generatedCode: code
+                });
+                console.log('Modified extension saved');
+              } catch (saveError) {
+                console.error('Failed to save modified extension:', saveError);
+              }
+            }
+          }
+          
+          setIsModifying(false);
+          setAnimationComplete(true);
+          setModificationInput('');  // Clear input after successful modification
+        },
+        
+        onError: (error) => {
+          console.error('Modification error:', error);
+          setReasoningText(prev => prev + `\n❌ Error: ${error.message}\n`);
+          setIsModifying(false);
+          setAnimationComplete(true);  // Re-enable UI
+        }
+      });
+      
+    } catch (err) {
+      console.error('Modification failed:', err);
+      setReasoningText(prev => prev + `\n❌ Modification failed: ${err.message}\n`);
+      setIsModifying(false);
+      setAnimationComplete(true);
     }
   };
 
@@ -528,41 +863,11 @@ Now create a complete, professional ${formData.name} extension with all necessar
             "X-Title": "Extension Builder"
           },
           body: JSON.stringify({
-            model: "qwen/qwen3-coder:free",
+            model: "xiaomi/mimo-v2-flash",
             messages: [
               {
                 role: "system",
                 content: `You are a senior browser extension developer with 10+ years experience. You create professional, production-ready extensions with beautiful modern UIs.
-
-🧠 CRITICAL: FIRST OUTPUT YOUR REASONING BEFORE ANY CODE
-
-Before generating ANY files, you MUST output your detailed reasoning process like this:
-
-<REASONING>
-1. Requirements Analysis:
-   - [Analyze what the user wants in detail]
-   
-2. Architecture Planning:
-   - [List all required files and folder structure]
-   - [Explain how components interact]
-   
-3. Edge Cases & Validation:
-   - [List potential problems and how to handle them]
-   - [Identify validation needs]
-   
-4. UI/UX Design Plan:
-   - [Describe the visual design approach]
-   - [List animations and interactions]
-   
-5. Quality Checklist:
-   - [Verify DOMContentLoaded usage]
-   - [Confirm null checks]
-   - [Validate manifest paths]
-</REASONING>
-
-Take 30-60 seconds to write thorough reasoning. Be detailed and specific.
-
-ONLY AFTER completing your reasoning analysis should you begin with FILE_START markers.
 
 YOUR APPROACH:
 1. First, analyze what the extension needs to do
@@ -635,13 +940,8 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
               }
             ],
             temperature: 0.7,
-            max_tokens: 80000,
-            stream: true,
-            thinking: {
-              type: "enabled",
-              budget_tokens: 8000
-            },
-            top_p: 0.95,
+            max_tokens: 24000,
+            stream: true
           })
         });
 
@@ -695,25 +995,16 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
                 const parsed = JSON.parse(data);
                 const delta = parsed.choices?.[0]?.delta || {};
                 
+                // Capture reasoning for display
+                const reasoning = delta.reasoning || '';
+                if (reasoning) {
+                  setReasoningText(prev => prev + reasoning);
+                }
+                
                 const content = delta.content || '';
                 if (!content) continue;
                 
                 buffer += content;
-                
-                // Capture reasoning section if present (before FILE_START markers)
-                if (buffer.includes('<REASONING>') && buffer.includes('</REASONING>')) {
-                  const reasoningMatch = buffer.match(/<REASONING>([\s\S]*?)<\/REASONING>/);
-                  if (reasoningMatch && reasoningMatch[1]) {
-                    const reasoningContent = reasoningMatch[1].trim();
-                    setReasoningText(reasoningContent);
-                    // Auto-hide reasoning after 5 seconds
-                    setTimeout(() => {
-                      setReasoningText('');
-                    }, 100);
-                    // Remove the reasoning section from buffer
-                    buffer = buffer.replace(/<REASONING>[\s\S]*?<\/REASONING>/, '');
-                  }
-                }
                 
                 // Parse FILE_START marker - indicates beginning of new file
                 // Requires newline after filename to ensure complete marker detection
@@ -901,12 +1192,15 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
   // ============================================
 
   // Create ZIP archive with all generated files and trigger download to user
-  // Supports both new (allFiles with folder paths) and legacy code structures
+  // Uses animationFiles as source of truth (includes user edits)
   const downloadExtension = async () => {
-    if (!generatedCode) {
+    // Use animationFiles as source of truth (includes any user edits)
+    const filesToDownload = animationFiles.filter(f => f.complete && f.content);
+    
+    if (filesToDownload.length === 0) {
       setError({
         type: 'error',
-        message: 'No extension code available for download. Please generate the extension first.'
+        message: 'No extension files available for download. Please generate the extension first.'
       });
       return;
     }
@@ -914,39 +1208,11 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
     try {
       const zip = new JSZip();
     
-    // Add all generated files with their full paths (including folders)
-    if (generatedCode.allFiles && generatedCode.allFiles.length > 0) {
-      generatedCode.allFiles.forEach(file => {
+      // Add all files with their full paths (including folders)
+      filesToDownload.forEach(file => {
         console.log(`Adding to ZIP: ${file.name}`);
         zip.file(file.name, file.content);
       });
-    } else {
-      // Fallback to old structure if allFiles not available
-      if (generatedCode.manifest) {
-        zip.file('manifest.json', generatedCode.manifest);
-      }
-
-      if (generatedCode.popup) {
-        if (generatedCode.popup.html) zip.file('popup.html', generatedCode.popup.html);
-        if (generatedCode.popup.css) zip.file('popup.css', generatedCode.popup.css);
-        if (generatedCode.popup.js) zip.file('popup.js', generatedCode.popup.js);
-      }
-
-      if (generatedCode.content) {
-        if (generatedCode.content.js) zip.file('content.js', generatedCode.content.js);
-        if (generatedCode.content.css) zip.file('content.css', generatedCode.content.css);
-      }
-
-      if (generatedCode.background?.js) {
-        zip.file('background.js', generatedCode.background.js);
-      }
-
-      if (generatedCode.options) {
-        if (generatedCode.options.html) zip.file('options.html', generatedCode.options.html);
-        if (generatedCode.options.js) zip.file('options.js', generatedCode.options.js);
-        if (generatedCode.options.css) zip.file('options.css', generatedCode.options.css);
-      }
-    }
 
       // Generate ZIP file and download
       const zipBlob = await zip.generateAsync({ type: 'blob' });
@@ -1068,7 +1334,7 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
   );
 
   // Step 2 - Extension Type & Configuration
-  // Collect: extension type, optional icon upload
+  // Collect: extension type, optional icon upload, agent mode toggle
   const renderStep2 = () => (
     <div className="step-content">
       <h3>Extension Type & Configuration</h3>
@@ -1097,6 +1363,35 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
         {formData.icon && (
           <div className="icon-preview">
             <img src={URL.createObjectURL(formData.icon)} alt="Icon preview" />
+          </div>
+        )}
+      </div>
+
+      {/* Agent Mode Toggle */}
+      <div className="form-group agent-mode-section">
+        <div className="agent-toggle-container">
+          <label className="agent-toggle-label">
+            <span className="agent-icon">🤖</span>
+            <span>Agent Mode (Experimental)</span>
+            {agentStatus === 'checking' && <span className="agent-status checking">Checking...</span>}
+            {agentStatus === 'available' && <span className="agent-status available">Available</span>}
+            {agentStatus === 'unavailable' && <span className="agent-status unavailable">Offline</span>}
+          </label>
+          <div 
+            className={`toggle-switch ${useAgent ? 'active' : ''} ${!agentAvailable ? 'disabled' : ''}`}
+            onClick={() => agentAvailable && setUseAgent(!useAgent)}
+          >
+            <div className="toggle-slider"></div>
+          </div>
+        </div>
+        <p className="agent-description">
+          {agentAvailable 
+            ? "Use LangGraph-powered agent for smarter extension generation with tool use and reasoning."
+            : "Agent server is not running. Start with: python src/agent/server.py"}
+        </p>
+        {useAgent && agentAvailable && (
+          <div className="agent-active-indicator">
+            ✨ Agent Mode Active - Using LangGraph with tool calling
           </div>
         )}
       </div>
@@ -1131,97 +1426,179 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
   );
 
   // Step 4 - Generation & Display
-  // Show: real-time generation progress, generated files, download button
+  // Unified interface: same view during generation and after completion
   const renderStep4 = () => {
-    // Show real-time animation while generating
-    if (isAnimating && animationFiles.length > 0) {
-      const safeIndex = Math.min(currentAnimFileIndex, animationFiles.length - 1);
-      const currentFile = animationFiles[safeIndex];
+    // Get files to display - use animationFiles during/after generation
+    const displayFiles = animationFiles.length > 0 ? animationFiles : [];
+    const safeIndex = Math.max(0, Math.min(currentAnimFileIndex, displayFiles.length - 1));
+    const currentFile = displayFiles[safeIndex];
+    // Only show "ready" when generation is truly complete (animationComplete flag set by onComplete)
+    // AND all files have their complete flag set
+    const allFilesComplete = animationComplete && displayFiles.length > 0 && displayFiles.every(f => f.complete);
+    
+    // Show generation interface (during generation OR after with files)
+    if (isAnimating || isGenerating || displayFiles.length > 0) {
+      const showThinkingPanel = !allFilesComplete || reasoningText;
       
       return (
-        <div className="step-content animation-view">
-          <h3>✨ AI Creating Extension Files</h3>
+        <div className="step-content workspace-view">
+          {/* Header with status and download */}
+          <div className="workspace-header">
+            <h3>
+              {isAnimating || isGenerating ? '✨ Creating Extension...' : `📁 ${formData.name || 'Extension'} Workspace`}
+            </h3>
+            {allFilesComplete && (
+              <button className="btn btn-primary download-btn-inline" onClick={downloadExtension}>
+                📥 Download ZIP ({displayFiles.length} files)
+              </button>
+            )}
+          </div>
           
-          {reasoningText && (
-            <div className="thinking-container">
-              <div className="thinking-animation">
-                <div className="thinking-dot"></div>
-                <div className="thinking-dot"></div>
-                <div className="thinking-dot"></div>
+          <div className="workspace-container">
+            {/* LEFT PANEL - File Tree */}
+            <div className="workspace-sidebar">
+              <div className="sidebar-header">
+                <span className="folder-icon">📁</span>
+                <span className="folder-name">{formData.name || 'extension'}</span>
+                {!allFilesComplete && <span className="generating-badge">generating...</span>}
               </div>
-              <h4 className="thinking-header">🧠 AI Reasoning</h4>
-              <pre className="thinking-text-stream">{reasoningText}</pre>
-            </div>
-          )}
-          
-          <div className="animation-container">
-            <div className="file-tree">
-              <div className="file-tree-header">
-                <span>📁 {formData.name || 'extension'}</span>
+              
+              <div className="file-list">
+                {displayFiles.length === 0 ? (
+                  <div className="waiting-files">
+                    <div className="pulse-dot"></div>
+                    <span>Waiting for files...</span>
+                  </div>
+                ) : (
+                  displayFiles.map((file, index) => (
+                    <div 
+                      key={`${index}-${file.name}`}
+                      className={`file-item ${index === safeIndex ? 'active' : ''} ${file.complete ? 'complete' : 'writing'}`}
+                      onClick={() => {
+                        setCurrentAnimFileIndex(index);
+                        setCurrentAnimText(file.content);
+                      }}
+                    >
+                      <span className="file-icon">{file.icon}</span>
+                      <span className="file-name">{file.name}</span>
+                      {file.complete ? (
+                        <span className="status-icon complete">✓</span>
+                      ) : (
+                        <span className="status-icon writing">
+                          <span className="writing-dot"></span>
+                        </span>
+                      )}
+                    </div>
+                  ))
+                )}
               </div>
-              {animationFiles.map((file, index) => (
-                <div 
-                  key={`${index}-${file.name}`}
-                  className={`file-tree-item ${index === safeIndex ? 'active' : ''} ${file.complete ? 'completed' : ''}`}
-                >
-                  <span className="file-icon">{file.icon}</span>
-                  <span className="file-name">{file.name}</span>
-                  {file.complete && <span className="check-mark">✓</span>}
-                  {index === safeIndex && !file.complete && <span className="writing-indicator">...</span>}
-                </div>
-              ))}
+              
+              {/* Status info */}
+              <div className="sidebar-footer">
+                <span className="file-count">{displayFiles.filter(f => f.complete).length}/{displayFiles.length} files ready</span>
+              </div>
             </div>
             
-            <div className="code-editor">
+            {/* MIDDLE PANEL - Code Editor */}
+            <div className={`workspace-editor ${showThinkingPanel ? 'with-thinking' : 'full-width'}`}>
               <div className="editor-header">
-                <span className="editor-tab active">
-                  {currentFile?.icon} {currentFile?.name}
-                </span>
-                <span className="editor-status">
-                  {safeIndex + 1} / {animationFiles.length} files
-                </span>
+                <div className="editor-tabs">
+                  <span className="editor-tab active">
+                    {currentFile?.icon} {currentFile?.name || 'No file selected'}
+                  </span>
+                </div>
+                <div className="editor-actions">
+                  <span className="char-count">{currentAnimText?.length || 0} chars</span>
+                  <span className="edit-indicator">✏️ Editable</span>
+                </div>
               </div>
-              <pre className="editor-content">
-                {currentAnimText}
-                {!currentFile?.complete && <span className="typing-cursor">▌</span>}
-              </pre>
+              
+              <div className="editor-body">
+                <textarea
+                  className="editor-textarea"
+                  value={currentAnimText || '// Select a file from the sidebar or wait for generation...'}
+                  onChange={(e) => handleFileContentEdit(safeIndex, e.target.value)}
+                  spellCheck={false}
+                  placeholder="// Code will appear here..."
+                />
+                {currentFile && !currentFile.complete && <span className="typing-cursor overlay">▌</span>}
+              </div>
             </div>
+            
+            {/* RIGHT PANEL - AI Thinking/Reasoning */}
+            {showThinkingPanel && (
+              <div className="workspace-thinking">
+                <div className="thinking-header">
+                  <span className="thinking-icon">🧠</span>
+                  <span className="thinking-title">AI Thinking</span>
+                  {(!allFilesComplete || isModifying) && (
+                    <div className="thinking-dots">
+                      <span className="dot"></span>
+                      <span className="dot"></span>
+                      <span className="dot"></span>
+                    </div>
+                  )}
+                </div>
+                <div className="thinking-body">
+                  <pre className="thinking-log">
+                    {reasoningText || '🚀 Starting generation...\n🧠 Analyzing requirements...\n'}
+                    {(!allFilesComplete || isModifying) && <span className="thinking-cursor">▌</span>}
+                  </pre>
+                </div>
+                
+                {/* Chat Input - inside AI panel at bottom */}
+                {allFilesComplete && agentAvailable && (
+                  <div className="thinking-chat-input">
+                    <input
+                      type="text"
+                      className="chat-input"
+                      placeholder="Ask for changes... (e.g., 'Add dark mode')"
+                      value={modificationInput}
+                      onChange={(e) => setModificationInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey && modificationInput.trim() && !isModifying) {
+                          handleModifyExtension();
+                        }
+                      }}
+                      disabled={isModifying}
+                    />
+                    <button
+                      className="chat-send-btn"
+                      onClick={handleModifyExtension}
+                      disabled={isModifying || !modificationInput.trim()}
+                    >
+                      {isModifying ? <span className="spinner-small"></span> : '→'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+          
+          {/* Bottom status bar */}
+          {allFilesComplete && (
+            <div className="workspace-statusbar">
+              <span className="status-success">✅ Extension ready!</span>
+              <span className="status-hint">💡 Edit files above, then download when ready</span>
+            </div>
+          )}
         </div>
       );
     }
     
-    if (!generatedCode) {
+    // Initial state - no generation started yet
+    if (!generatedCode && !isGenerating) {
       return (
         <div className="step-content">
-          <h3>Generated Extension</h3>
+          <h3>Generate Extension</h3>
           <div className="generation-status">
-            {isGenerating ? (
-              <div className="loading">
-                <div className="spinner"></div>
-                <p>Generating your extension...</p>
-                
-                {streamingText && (
-                  <div className="thinking-container">
-                    <div className="thinking-animation">
-                      <div className="thinking-dot"></div>
-                      <div className="thinking-dot"></div>
-                      <div className="thinking-dot"></div>
-                    </div>
-                    <h4 className="thinking-header">🧠 AI Reasoning</h4>
-                    <pre className="thinking-text-stream">{streamingText}</pre>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="generate-section">
-                <h4>Ready to Generate</h4>
-                <p>Click the button below to generate your extension files with advanced AI-powered code generation.</p>
-                <button className="btn btn-primary" onClick={generateExtension}>
-                  🚀 Generate Extension
-                </button>
-              </div>
-            )}
+            <div className="generate-section">
+              <h4>Ready to Generate</h4>
+              <p>Click the button below to generate your extension files with advanced AI-powered code generation.</p>
+              <button className="btn btn-primary" onClick={generateExtension}>
+                🚀 Generate Extension
+              </button>
+            </div>
             
             {error && (
               <div className={`error-message ${error.type === 'warning' ? 'warning' : error.type === 'success' ? 'success' : 'error'}`}>
@@ -1237,113 +1614,8 @@ ${!formData.icon ? '9. DO NOT create icons or add "icons" to manifest - user has
         </div>
       );
     }
-
-    // Create array of generated files for carousel
-    const generatedFiles = [];
     
-    // Use allFiles if available (new format with folder paths)
-    if (generatedCode.allFiles && generatedCode.allFiles.length > 0) {
-      generatedCode.allFiles.forEach(file => {
-        generatedFiles.push({
-          name: file.name,
-          content: file.content,
-          icon: getFileIcon(file.name)
-        });
-      });
-    } else {
-      // Fallback to old structure
-      if (generatedCode.manifest) {
-        generatedFiles.push({ name: 'manifest.json', content: generatedCode.manifest, icon: '📄' });
-      }
-      if (generatedCode.popup?.html) {
-        generatedFiles.push({ name: 'popup.html', content: generatedCode.popup.html, icon: '🌐' });
-      }
-      if (generatedCode.popup?.css) {
-        generatedFiles.push({ name: 'popup.css', content: generatedCode.popup.css, icon: '🎨' });
-      }
-      if (generatedCode.popup?.js) {
-        generatedFiles.push({ name: 'popup.js', content: generatedCode.popup.js, icon: '⚡' });
-      }
-      if (generatedCode.content?.js) {
-        generatedFiles.push({ name: 'content.js', content: generatedCode.content.js, icon: '📜' });
-      }
-      if (generatedCode.content?.css) {
-        generatedFiles.push({ name: 'content.css', content: generatedCode.content.css, icon: '🎨' });
-      }
-      if (generatedCode.background?.js) {
-        generatedFiles.push({ name: 'background.js', content: generatedCode.background.js, icon: '⚙️' });
-      }
-      if (generatedCode.options?.html) {
-        generatedFiles.push({ name: 'options.html', content: generatedCode.options.html, icon: '🌐' });
-      }
-      if (generatedCode.options?.js) {
-        generatedFiles.push({ name: 'options.js', content: generatedCode.options.js, icon: '⚡' });
-      }
-      if (generatedCode.options?.css) {
-        generatedFiles.push({ name: 'options.css', content: generatedCode.options.css, icon: '🎨' });
-      }
-    }
-
-    const currentFile = generatedFiles[activeFileIndex] || generatedFiles[0];
-
-    return (
-      <div className="step-content full-screen">
-        <div className="carousel-header">
-          <h3>Generated Extension Files</h3>
-          <div className="file-tabs">
-            {generatedFiles.map((file, index) => (
-              <button
-                key={index}
-                className={`file-tab ${activeFileIndex === index ? 'active' : ''}`}
-                onClick={() => setActiveFileIndex(index)}
-              >
-                <span className="file-icon">{file.icon}</span>
-                <span className="file-name">{file.name}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="carousel-container">
-          <div className="carousel-navigation">
-            <button 
-              className="nav-btn prev-btn"
-              onClick={() => setActiveFileIndex(prev => prev > 0 ? prev - 1 : generatedFiles.length - 1)}
-              disabled={generatedFiles.length <= 1}
-            >
-              ←
-            </button>
-            
-            <div className="file-display">
-              <div className="file-header">
-                <h4>{currentFile.icon} {currentFile.name}</h4>
-                <span className="file-counter">{activeFileIndex + 1} / {generatedFiles.length}</span>
-              </div>
-              <div className="code-container">
-                <pre className="code-display-horizontal">{currentFile.content}</pre>
-              </div>
-            </div>
-            
-            <button 
-              className="nav-btn next-btn"
-              onClick={() => setActiveFileIndex(prev => prev < generatedFiles.length - 1 ? prev + 1 : 0)}
-              disabled={generatedFiles.length <= 1}
-            >
-              →
-            </button>
-          </div>
-        </div>
-
-        <div className="download-section-compact">
-          <button className="btn btn-primary download-btn" onClick={downloadExtension}>
-            📥 Download ZIP ({generatedFiles.length} files)
-          </button>
-          <div className="quick-instructions">
-            <p>💡 Extract ZIP → Open Chrome Extensions → Enable Developer Mode → Load Unpacked</p>
-          </div>
-        </div>
-      </div>
-    );
+    return null;
   };
 
   // ============================================
