@@ -192,6 +192,8 @@ class ExtensionRequest(BaseModel):
     author: Optional[str] = None
     type: str = "popup"
     permissions: List[str] = []
+    host_permissions: List[str] = []  # URLs like https://example.com/*
+    browser: str = "chrome"  # chrome, firefox, edge, safari
     hasIcon: bool = False
 
 
@@ -202,6 +204,10 @@ class ModifyRequest(BaseModel):
     description: str
     modification: str  # User's modification request
     files: List[Dict] = []  # Current files (fallback if not in vector DB)
+    conversation_history: List[Dict] = []  # Previous conversation for context
+    browser: str = "chrome"  # Target browser for modification
+    permissions: List[str] = []  # Current permissions
+    host_permissions: List[str] = []  # Current host permissions
 
 
 def format_sse(data: dict) -> str:
@@ -262,10 +268,10 @@ IMPORTANT: Do NOT include any icon files (.png, .svg, .ico) - no icons are provi
 OUTPUT ONLY THE JSON."""
 
 
-def get_manifest_prompt(name: str, version: str, description: str, plan: dict) -> str:
-    """Generate manifest based on the architecture plan."""
-    permissions = plan.get("permissions", ["activeTab"])
-    host_permissions = plan.get("host_permissions", [])
+def get_manifest_prompt(name: str, version: str, description: str, plan: dict, browser: str = "chrome", req_permissions: List[str] = None, req_host_permissions: List[str] = None) -> str:
+    """Generate manifest based on the architecture plan and browser target."""
+    permissions = req_permissions or plan.get("permissions", ["activeTab"])
+    host_permissions = req_host_permissions or plan.get("host_permissions", [])
     files = [f["name"] for f in plan.get("files", [])]
     
     # Find specific file paths
@@ -274,11 +280,17 @@ def get_manifest_prompt(name: str, version: str, description: str, plan: dict) -
     content_js = [f for f in files if "content" in f and f.endswith(".js")]
     options_html = next((f for f in files if "options" in f and f.endswith(".html")), None)
     
+    # Browser-specific settings
+    browser_lower = browser.lower()
+    manifest_version = 3 if browser_lower in ["chrome", "edge"] else 2 if browser_lower == "firefox" else 3
+    browser_label = {"chrome": "Chrome", "firefox": "Firefox", "edge": "Edge", "safari": "Safari"}.get(browser_lower, "Chrome")
+    
     prompt = f'''OUTPUT ONLY VALID JSON FOR manifest.json. NO EXPLANATIONS. NO MARKDOWN.
 
-Create manifest.json for Chrome extension "{name}".
+Create manifest.json for {browser_label} extension "{name}".
 Description: {description}
 Version: {version}
+Manifest Version: {manifest_version}
 
 EXACT FILES TO REFERENCE:
 '''
@@ -294,20 +306,26 @@ EXACT FILES TO REFERENCE:
     
     prompt += f'''\nPermissions: {json.dumps(permissions)}
 Host permissions: {json.dumps(host_permissions)}
+Browser: {browser_label}
 
 CRITICAL REQUIREMENTS:
-- Manifest V3 format ONLY
-- "manifest_version": 3
+- "manifest_version": {manifest_version}
 - "name": "{name}"
 - "version": "{version}"
 - "description": "{description}"
 '''
     
     if popup_html:
-        prompt += f'- "action": {{"default_popup": "{popup_html}"}}\n'
+        if browser_lower == "firefox" and manifest_version == 2:
+            prompt += f'- "browser_action": {{"default_popup": "{popup_html}"}}\n'
+        else:
+            prompt += f'- "action": {{"default_popup": "{popup_html}"}}\n'
     
     if background_js:
-        prompt += f'- "background": {{"service_worker": "{background_js}"}}\n'
+        if browser_lower == "firefox" and manifest_version == 2:
+            prompt += f'- "background": {{"scripts": ["{background_js}"]}}\n'
+        else:
+            prompt += f'- "background": {{"service_worker": "{background_js}"}}\n'
     
     if content_js:
         prompt += f'- "content_scripts": [{{"matches": ["<all_urls>"], "js": {json.dumps(content_js)}}}]\n'
@@ -319,7 +337,10 @@ CRITICAL REQUIREMENTS:
 '''
     
     if host_permissions:
-        prompt += f'- "host_permissions": {json.dumps(host_permissions)}\n'
+        if manifest_version == 3:
+            prompt += f'- "host_permissions": {json.dumps(host_permissions)}\n'
+        else:
+            prompt += f'  # Note: For Manifest V2, include host_permissions in "permissions" array\n'
     
     prompt += '''\nDO NOT INCLUDE:
 - "icons" field
@@ -402,7 +423,8 @@ STRICT RULES:
 
     # File-specific requirements
     if file_name == "manifest.json":
-        return get_manifest_prompt(request.name, request.version, request.description, plan)
+        return get_manifest_prompt(request.name, request.version, request.description, plan, 
+                                   request.browser, request.permissions, request.host_permissions)
     
     elif file_name.endswith('.html'):
         base_prompt += f'''Requirements for {file_name}:
@@ -632,7 +654,7 @@ async def generate_extension_files(request: ExtensionRequest) -> AsyncGenerator[
             plan_prompt = f"{PLANNING_PROMPT}\n\nExtension: {request.name} - {request.description}"
             plan_response = await asyncio.wait_for(
                 asyncio.to_thread(llm.invoke, [SystemMessage(content=plan_prompt)]),
-                timeout=15.0
+                timeout=30.0
             )
             
             plan_content = plan_response.content.strip()
@@ -676,7 +698,7 @@ async def generate_extension_files(request: ExtensionRequest) -> AsyncGenerator[
             try:
                 file_response = await asyncio.wait_for(
                     asyncio.to_thread(llm.invoke, [SystemMessage(content=coding_prompt)]),
-                    timeout=30.0
+                    timeout=90.0
                 )
                 file_content = clean_ai_response(file_response.content.strip(), file_name)
                 
@@ -759,8 +781,31 @@ async def generate_extension(request: ExtensionRequest):
 # MODIFICATION ENDPOINT
 # ============================================
 
-def get_modification_prompt(modification: str, relevant_files: List[Dict], all_files: List[Dict]) -> str:
+def get_modification_prompt(modification: str, relevant_files: List[Dict], all_files: List[Dict], conversation_history: List[Dict] = None) -> str:
     """Generate prompt for modifying extension files."""
+    
+    # Build conversation history context
+    history_context = ""
+    if conversation_history and len(conversation_history) > 0:
+        history_context = "\n=== CONVERSATION HISTORY ===\n"
+        history_context += "Previous modifications and discussions:\n\n"
+        
+        # Show last 5 messages for context
+        recent_history = conversation_history[-5:] if len(conversation_history) > 5 else conversation_history
+        
+        for msg in recent_history:
+            role = msg.get('role', 'unknown').upper()
+            content = msg.get('content', '')
+            timestamp = msg.get('timestamp', '')
+            
+            history_context += f"[{role}] {content}\n"
+            
+            if 'filesModified' in msg and msg['filesModified']:
+                history_context += f"  → Modified files: {', '.join(msg['filesModified'])}\n"
+            
+            history_context += "\n"
+        
+        history_context += "=== END CONVERSATION HISTORY ===\n\n"
     
     # Build context from relevant files
     relevant_context = ""
@@ -781,30 +826,61 @@ def get_modification_prompt(modification: str, relevant_files: List[Dict], all_f
         full_context += f"{content}\n"
     full_context += "=== END ALL FILES ===\n"
     
+    # Detect modification type for smarter constraints
+    modification_lower = modification.lower()
+    is_styling_change = any(word in modification_lower for word in ['color', 'style', 'background', 'font', 'size', 'css', 'appearance', 'look'])
+    is_text_change = any(word in modification_lower for word in ['text', 'title', 'label', 'message', 'wording'])
+    
+    # Add specific constraints based on modification type
+    specific_constraints = ""
+    if is_styling_change:
+        specific_constraints = "\n⚠️ STYLING CHANGE DETECTED: Only modify CSS files. Do NOT modify JavaScript or HTML unless absolutely necessary. Do NOT create new files."
+    elif is_text_change:
+        specific_constraints = "\n⚠️ TEXT CHANGE DETECTED: Only modify HTML files or JavaScript strings. Do NOT modify CSS or create new files."
+    
     return f'''You are an expert Chrome extension developer. The user wants to modify their extension.
 
-USER'S MODIFICATION REQUEST:
-"{modification}"
+{history_context}
+
+CURRENT MODIFICATION REQUEST:
+"{modification}"{specific_constraints}
 
 {relevant_context}
 
 {full_context}
 
-TASK: Analyze the modification request and determine which files need to be updated.
+TASK: Analyze the modification request and conversation history to determine which files need to be updated.
+Consider previous modifications when planning changes. Build upon or adjust previous work as needed.
+
+IMPORTANT CONSTRAINTS:
+1. ONLY modify files that are DIRECTLY related to the request
+2. Do NOT create new files unless the request explicitly asks for new functionality requiring them
+3. For simple changes (colors, text, styling), ONLY modify the relevant CSS/HTML file
+4. Do NOT modify manifest.json unless permissions or extension metadata must change
+5. Be EXTREMELY conservative - when in doubt, modify fewer files
+6. If modifying CSS: Do NOT touch JavaScript files
+7. If modifying text/labels: Do NOT touch CSS files
+
+CRITICAL INTEGRATION RULE:
+⚠️ If you MUST create a new file (rare), you MUST ALSO modify manifest.json to reference it properly:
+- New content.css → add to "content_scripts"[].css[]
+- New content.js → add to "content_scripts"[].js[]
+- New background.js → update "background"."service_worker"
+- New popup files → ensure "action"."default_popup" points to correct HTML + HTML links to CSS/JS
 
 OUTPUT FORMAT - Return ONLY valid JSON with this structure:
 {{
-  "analysis": "Brief explanation of what needs to change",
+  "analysis": "Brief explanation of what needs to change (referencing previous changes if relevant)",
   "files_to_modify": [
     {{
       "name": "path/to/file.ext",
-      "action": "modify" | "create" | "delete",
+      "action": "modify",
       "reason": "Why this file needs to change"
     }}
   ]
 }}
 
-Only include files that ACTUALLY need to change. Be conservative - don't modify files unnecessarily.
+Only include files that ACTUALLY need to change. For UI changes, typically only 1 file needs modification.
 OUTPUT ONLY THE JSON. NO MARKDOWN BLOCKS.'''
 
 
@@ -866,8 +942,8 @@ async def modify_extension_files(request: ModifyRequest) -> AsyncGenerator[str, 
         
         yield format_sse({"type": "thinking", "text": f"📂 Found {len(all_files)} project files"})
         
-        # Get relevant files using vector search
-        relevant_files = retrieve_relevant_context(request.project_id, request.modification, n_results=3)
+        # Get relevant files using vector search (limit to 2 to avoid over-modification)
+        relevant_files = retrieve_relevant_context(request.project_id, request.modification, n_results=2)
         
         if relevant_files:
             yield format_sse({"type": "thinking", "text": f"🎯 Found {len(relevant_files)} relevant files"})
@@ -875,12 +951,22 @@ async def modify_extension_files(request: ModifyRequest) -> AsyncGenerator[str, 
         # PHASE 1: Analyze what needs to change
         yield format_sse({"type": "thinking", "text": "🤔 Planning modifications..."})
         
-        analysis_prompt = get_modification_prompt(request.modification, relevant_files, all_files)
+        # Add conversation history context
+        if request.conversation_history:
+            history_count = len(request.conversation_history)
+            yield format_sse({"type": "thinking", "text": f"📜 Using {history_count} previous messages for context"})
+        
+        analysis_prompt = get_modification_prompt(
+            request.modification, 
+            relevant_files, 
+            all_files,
+            request.conversation_history  # Pass conversation history
+        )
         
         try:
             analysis_response = await asyncio.wait_for(
                 asyncio.to_thread(llm.invoke, [SystemMessage(content=analysis_prompt)]),
-                timeout=20.0
+                timeout=90.0
             )
             
             analysis_content = analysis_response.content.strip()
@@ -908,6 +994,16 @@ async def modify_extension_files(request: ModifyRequest) -> AsyncGenerator[str, 
         analysis_text = modification_plan.get("analysis", "Analyzing changes...")
         files_to_modify = modification_plan.get("files_to_modify", [])
         
+        # Warn about potentially unnecessary modifications
+        manifest_modified = any(f.get("name") == "manifest.json" for f in files_to_modify)
+        new_files = [f for f in files_to_modify if f.get("action") == "create"]
+        
+        if manifest_modified:
+            yield format_sse({"type": "thinking", "text": "⚠️ Warning: manifest.json will be modified"})
+        
+        if new_files:
+            yield format_sse({"type": "thinking", "text": f"⚠️ Warning: {len(new_files)} new file(s) will be created"})
+        
         yield format_sse({"type": "thinking", "text": f"📋 {analysis_text}"})
         yield format_sse({"type": "thinking", "text": f"📝 {len(files_to_modify)} file(s) to update"})
         
@@ -923,12 +1019,22 @@ async def modify_extension_files(request: ModifyRequest) -> AsyncGenerator[str, 
         
         # PHASE 2: Modify each file
         modified_files = []
+        created_files = []
         file_dict = {f['name']: f['content'] for f in all_files}
+        original_files = set(file_dict.keys())
         
         for file_info in files_to_modify:
             file_name = file_info.get("name", "")
             action = file_info.get("action", "modify")
             reason = file_info.get("reason", "")
+            
+            # Track if this is a new file creation
+            is_new_file = file_name not in original_files
+            
+            # Skip if action is "create" for a non-existent file (prevent unnecessary file creation)
+            if action == "create" and is_new_file:
+                yield format_sse({"type": "thinking", "text": f"⚠️ Skipping creation of {file_name} - not in original project"})
+                continue
             
             yield format_sse({"type": "thinking", "text": f"🔄 {action.title()}: {file_name}"})
             
@@ -953,7 +1059,7 @@ async def modify_extension_files(request: ModifyRequest) -> AsyncGenerator[str, 
             try:
                 file_response = await asyncio.wait_for(
                     asyncio.to_thread(llm.invoke, [SystemMessage(content=mod_prompt)]),
-                    timeout=30.0
+                    timeout=120.0
                 )
                 new_content = clean_ai_response(file_response.content.strip(), file_name)
                 
@@ -972,6 +1078,10 @@ async def modify_extension_files(request: ModifyRequest) -> AsyncGenerator[str, 
             file_dict[file_name] = new_content
             modified_files.append(file_name)
             
+            # Track if this was a new file
+            if is_new_file:
+                created_files.append(file_name)
+            
             # Stream the modified file
             yield format_sse({"type": "file_start", "file": file_name})
             
@@ -985,6 +1095,79 @@ async def modify_extension_files(request: ModifyRequest) -> AsyncGenerator[str, 
         
         # Convert back to list format
         final_files = [{"name": name, "content": content} for name, content in file_dict.items()]
+        
+        # Validate manifest.json references all necessary files
+        if "manifest.json" in file_dict:
+            try:
+                manifest_data = json.loads(file_dict["manifest.json"])
+                missing_refs = []
+                
+                # Check popup HTML references
+                if "action" in manifest_data and "default_popup" in manifest_data["action"]:
+                    popup_html = manifest_data["action"]["default_popup"]
+                    if popup_html not in file_dict:
+                        missing_refs.append(f"Popup HTML '{popup_html}' not found")
+                
+                # Check background script
+                if "background" in manifest_data and "service_worker" in manifest_data["background"]:
+                    bg_js = manifest_data["background"]["service_worker"]
+                    if bg_js not in file_dict:
+                        missing_refs.append(f"Background script '{bg_js}' not found")
+                
+                # Check content scripts
+                if "content_scripts" in manifest_data:
+                    for cs in manifest_data["content_scripts"]:
+                        for js_file in cs.get("js", []):
+                            if js_file not in file_dict:
+                                missing_refs.append(f"Content script '{js_file}' not found")
+                        for css_file in cs.get("css", []):
+                            if css_file not in file_dict:
+                                missing_refs.append(f"Content CSS '{css_file}' not found")
+                
+                # Warn about missing references
+                if missing_refs:
+                    for ref in missing_refs:
+                        yield format_sse({"type": "thinking", "text": f"⚠️ {ref}"})
+                        
+            except Exception as e:
+                yield format_sse({"type": "thinking", "text": f"⚠️ Could not validate manifest: {str(e)[:50]}"})
+        
+        # If new files were created, ensure manifest.json references them properly
+        if created_files:
+            yield format_sse({"type": "thinking", "text": f"🆕 {len(created_files)} new file(s) created"})
+            
+        if modified_files and "manifest.json" in file_dict:
+            try:
+                manifest_data = json.loads(file_dict["manifest.json"])
+                needs_manifest_update = False
+                
+                for mod_file in modified_files:
+                    # Check if new CSS file was created and not in content_scripts
+                    if mod_file.endswith('.css') and 'content' in mod_file:
+                        if "content_scripts" in manifest_data:
+                            for cs in manifest_data["content_scripts"]:
+                                if "css" in cs and mod_file not in cs["css"]:
+                                    cs["css"].append(mod_file)
+                                    needs_manifest_update = True
+                                    yield format_sse({"type": "thinking", "text": f"🔗 Added {mod_file} to content_scripts"})
+                    
+                    # Check if new JS file was created and should be in content_scripts
+                    elif mod_file.endswith('.js') and 'content' in mod_file and 'background' not in mod_file:
+                        if "content_scripts" in manifest_data:
+                            for cs in manifest_data["content_scripts"]:
+                                if "js" in cs and mod_file not in cs["js"]:
+                                    cs["js"].append(mod_file)
+                                    needs_manifest_update = True
+                                    yield format_sse({"type": "thinking", "text": f"🔗 Added {mod_file} to content_scripts"})
+                
+                # Update manifest if changes were made
+                if needs_manifest_update:
+                    file_dict["manifest.json"] = json.dumps(manifest_data, indent=2)
+                    final_files = [{"name": name, "content": content} for name, content in file_dict.items()]
+                    yield format_sse({"type": "thinking", "text": "🔗 Updated manifest.json with new file references"})
+                    
+            except Exception as e:
+                yield format_sse({"type": "thinking", "text": f"⚠️ Could not auto-update manifest: {str(e)[:50]}"})
         
         # Update vector database with modified files
         store_files_in_vector_db(request.project_id, final_files, {

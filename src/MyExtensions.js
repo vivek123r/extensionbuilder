@@ -14,6 +14,7 @@ const MyExtensions = () => {
   const [error, setError] = useState(null);
   const [selectedExtension, setSelectedExtension] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     loadExtensions();
@@ -56,6 +57,8 @@ const MyExtensions = () => {
       const zip = new JSZip();
       const code = extension.generatedCode;
 
+      console.log('Downloading extension - code structure:', Object.keys(code));
+
       // Add manifest
       if (code.manifest) {
         zip.file('manifest.json', code.manifest);
@@ -84,6 +87,20 @@ const MyExtensions = () => {
         if (code.options.html) zip.file('options.html', code.options.html);
         if (code.options.js) zip.file('options.js', code.options.js);
         if (code.options.css) zip.file('options.css', code.options.css);
+      }
+
+      // Fallback: If allFiles array exists, add all files from it
+      if (code.allFiles && Array.isArray(code.allFiles) && code.allFiles.length > 0) {
+        console.log('Adding files from allFiles array:', code.allFiles.length, 'files');
+        code.allFiles.forEach(file => {
+          if (file.name && file.content) {
+            // Avoid duplicate files
+            const existingFile = zip.file(file.name);
+            if (!existingFile) {
+              zip.file(file.name, file.content);
+            }
+          }
+        });
       }
 
       // Generate ZIP and download
@@ -156,6 +173,22 @@ const MyExtensions = () => {
     }
   };
 
+  const handleModifyExtension = (extension) => {
+    navigate('/create-extension', { state: { existingExtension: extension } });
+  };
+
+  // Filter extensions based on search query
+  const filteredExtensions = extensions.filter(ext => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      ext.name.toLowerCase().includes(query) ||
+      ext.description?.toLowerCase().includes(query) ||
+      ext.type?.toLowerCase().includes(query) ||
+      ext.author?.toLowerCase().includes(query)
+    );
+  });
+
   if (loading) {
     return (
       <div className="my-extensions-container">
@@ -190,6 +223,28 @@ const MyExtensions = () => {
         </button>
       </div>
 
+      {/* Search Bar */}
+      {extensions.length > 0 && (
+        <div className="search-bar-container">
+          <input
+            type="text"
+            className="search-input"
+            placeholder="🔍 Search extensions by name, description, type, or author..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button 
+              className="clear-search-btn"
+              onClick={() => setSearchQuery('')}
+              aria-label="Clear search"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
+
       {error && (
         <div className="error-banner">
           <span>⚠️</span>
@@ -209,9 +264,21 @@ const MyExtensions = () => {
             Create Your First Extension
           </button>
         </div>
+      ) : filteredExtensions.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-icon">🔍</div>
+          <h2>No Extensions Found</h2>
+          <p>No extensions match your search criteria.</p>
+          <button 
+            onClick={() => setSearchQuery('')}
+            className="btn btn-primary"
+          >
+            Clear Search
+          </button>
+        </div>
       ) : (
         <div className="extensions-grid">
-          {extensions.map((extension) => (
+          {filteredExtensions.map((extension) => (
             <div key={extension.id} className="extension-card">
               <div className="card-header">
                 <h3>{extension.name}</h3>
@@ -249,6 +316,13 @@ const MyExtensions = () => {
                   className="btn btn-outline"
                 >
                   View Details
+                </button>
+                <button 
+                  onClick={() => handleModifyExtension(extension)}
+                  className="btn btn-primary"
+                  title="Modify with AI"
+                >
+                  ✏️ Modify
                 </button>
                 <button 
                   onClick={() => downloadExtension(extension)}

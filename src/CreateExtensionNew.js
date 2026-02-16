@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import JSZip from 'jszip';
 import './CreateExtensionNew.css';
 import HyperspeedBackground from './components/HyperspeedBackground';
 import StepTransition from './components/StepTransition';
 import { useAuth } from './contexts/AuthContext';
-import { saveExtension } from './services/extensionService';
+import { saveExtension, updateExtension } from './services/extensionService';
 import { checkAgentHealth, generateWithAgent, convertAgentFilesToCode, modifyWithAgent } from './services/agentService';
 
 /**
@@ -18,6 +18,7 @@ import { checkAgentHealth, generateWithAgent, convertAgentFilesToCode, modifyWit
 const CreateExtensionNew = () => {
   // === Hooks ===
   const navigate = useNavigate();
+  const location = useLocation();
   const { currentUser } = useAuth();
   
   // === Form State - User input for extension configuration ===
@@ -59,6 +60,8 @@ const CreateExtensionNew = () => {
   const [projectId, setProjectId] = useState(''); // Project ID for vector DB
   const [modificationInput, setModificationInput] = useState(''); // User's modification request
   const [isModifying, setIsModifying] = useState(false); // Currently modifying
+  const [conversationHistory, setConversationHistory] = useState([]); // Chat history for context
+  const [loadedExtensionId, setLoadedExtensionId] = useState(null); // Track which extension is loaded
 
   // Check agent availability on mount
   useEffect(() => {
@@ -70,6 +73,177 @@ const CreateExtensionNew = () => {
     };
     checkAgent();
   }, []);
+
+  // Load existing extension if passed via navigation state
+  useEffect(() => {
+    const existingExtension = location.state?.existingExtension;
+    if (existingExtension) {
+      console.log('Loading existing extension for modification:', existingExtension);
+      
+      // Populate form data
+      setFormData({
+        name: existingExtension.name || "",
+        description: existingExtension.description || "",
+        version: existingExtension.version || "1.0.0",
+        type: existingExtension.type || "popup",
+        permissions: existingExtension.permissions || [],
+        author: existingExtension.author || "",
+        icon: null,
+        targetBrowser: existingExtension.targetBrowser || "chrome"
+      });
+      
+      // Load conversation history if available
+      if (existingExtension.conversationHistory) {
+        setConversationHistory(existingExtension.conversationHistory);
+        console.log('📜 Loaded conversation history:', existingExtension.conversationHistory.length, 'messages');
+      }
+      
+      // Track extension ID for saving updates
+      if (existingExtension.id) {
+        setLoadedExtensionId(existingExtension.id);
+      }
+      
+      // Populate generated code
+      if (existingExtension.generatedCode) {
+        setGeneratedCode(existingExtension.generatedCode);
+        
+        // Convert code to animation files format
+        const files = [];
+        const code = existingExtension.generatedCode;
+        
+        console.log('Loading extension with code structure:', Object.keys(code));
+        
+        // First try to use allFiles if it exists
+        if (code.allFiles && Array.isArray(code.allFiles) && code.allFiles.length > 0) {
+          console.log('Using allFiles array:', code.allFiles.length, 'files');
+          code.allFiles.forEach(file => {
+            if (file.name && file.content) {
+              files.push({
+                name: file.name,
+                icon: getFileIcon(file.name),
+                content: file.content,
+                complete: true
+              });
+            }
+          });
+        } else {
+          // Fallback to structured format
+          console.log('Using structured format');
+          
+          if (code.manifest) {
+            files.push({
+              name: 'manifest.json',
+              icon: '📄',
+              content: typeof code.manifest === 'string' ? code.manifest : JSON.stringify(code.manifest, null, 2),
+              complete: true
+            });
+          }
+          
+          if (code.popup?.html) {
+            files.push({
+              name: 'popup/popup.html',
+              icon: '🌐',
+              content: code.popup.html,
+              complete: true
+            });
+          }
+          
+          if (code.popup?.css) {
+            files.push({
+              name: 'popup/popup.css',
+              icon: '🎨',
+              content: code.popup.css,
+              complete: true
+            });
+          }
+          
+          if (code.popup?.js) {
+            files.push({
+              name: 'popup/popup.js',
+              icon: '⚡',
+              content: code.popup.js,
+              complete: true
+            });
+          }
+          
+          if (code.content?.js) {
+            files.push({
+              name: 'scripts/content.js',
+              icon: '📜',
+              content: code.content.js,
+              complete: true
+            });
+          }
+          
+          if (code.content?.css) {
+            files.push({
+              name: 'styles/content.css',
+              icon: '🎨',
+              content: code.content.css,
+              complete: true
+            });
+          }
+          
+          if (code.background?.js) {
+            files.push({
+              name: 'scripts/background.js',
+              icon: '⚙️',
+              content: code.background.js,
+              complete: true
+            });
+          }
+          
+          if (code.options?.html) {
+            files.push({
+              name: 'options/options.html',
+              icon: '🌐',
+              content: code.options.html,
+              complete: true
+            });
+          }
+          
+          if (code.options?.js) {
+            files.push({
+              name: 'options/options.js',
+              icon: '⚡',
+              content: code.options.js,
+              complete: true
+            });
+          }
+          
+          if (code.options?.css) {
+            files.push({
+              name: 'options/options.css',
+              icon: '🎨',
+              content: code.options.css,
+              complete: true
+            });
+          }
+        }
+        
+        console.log('Loaded', files.length, 'files for modification');
+        setAnimationFiles(files);
+        setAnimationComplete(true);
+        
+        // Set first file as active
+        if (files.length > 0) {
+          setCurrentAnimFileIndex(0);
+          setCurrentAnimText(files[0].content);
+        }
+        
+        // Jump to step 4 to show the workspace - also set previousStep to 4 to avoid showing step 1 content
+        setActiveStep(4);
+        setPreviousStep(4);
+        
+        // Enable agent mode for modifications
+        if (agentAvailable) {
+          setUseAgent(true);
+        }
+        
+        setReasoningText('✅ Extension loaded successfully! You can now modify it using the chat below.\n\n💡 Try asking for changes like:\n- "Add dark mode support"\n- "Improve the styling"\n- "Add error handling"\n');
+      }
+    }
+  }, [location.state, agentAvailable]);
 
   // ============================================
   // CONFIGURATION DATA
@@ -350,6 +524,7 @@ Make the suggestions specific, actionable, and relevant to the described extensi
     setAnimationFiles([]);
     setAnimationComplete(false);
     setActiveStep(4); // Move to step 4 immediately to show streaming
+    setPreviousStep(4); // Also set previousStep to avoid showing previous step content
 
     // Use agent mode if enabled and available
     if (useAgent && agentAvailable) {
@@ -385,9 +560,12 @@ Make the suggestions specific, actionable, and relevant to the described extensi
               permissions: formData.permissions,
               author: formData.author,
               targetBrowser: formData.targetBrowser,
-              generatedCode: response.code
+              generatedCode: response.code,
+              conversationHistory: [],  // Initialize empty conversation history
+              projectId: ''  // Will be set on first modification
             });
             console.log('Extension saved to database with ID:', extensionId);
+            setLoadedExtensionId(extensionId);  // Track for future modifications
           } catch (saveError) {
             console.error('Failed to save extension to database:', saveError);
           }
@@ -552,9 +730,16 @@ Make the suggestions specific, actionable, and relevant to the described extensi
     setIsModifying(true);
     setAnimationComplete(false);  // Reset to show progress
     
-    // Add user message to chat in a styled format
-    const userMessage = modificationInput;
-    setReasoningText(prev => prev + `\n\n💬 You: ${userMessage}\n\n`);
+    // Add user message to chat and conversation history
+    const userMessage = {
+      role: 'user',
+      content: modificationInput,
+      timestamp: new Date().toISOString()
+    };
+    
+    console.log('💬 Adding user message to history:', userMessage);
+    setConversationHistory(prev => [...prev, userMessage]);
+    setReasoningText(prev => prev + `\n\n💬 You: ${modificationInput}\n\n`);
     
     // Get current files from animationFiles
     const currentFiles = animationFiles.map(f => ({
@@ -562,13 +747,25 @@ Make the suggestions specific, actionable, and relevant to the described extensi
       content: f.content
     }));
     
+    console.log('📤 Sending to agent:', {
+      files: currentFiles.length,
+      conversationHistory: conversationHistory.length,
+      browser: formData.targetBrowser,
+      permissions: formData.permissions,
+      modification: modificationInput
+    });
+    
     try {
       await modifyWithAgent({
         projectId: projectId,
         name: formData.name,
         description: formData.description,
-        modification: userMessage,
-        files: currentFiles
+        modification: modificationInput,
+        files: currentFiles,
+        conversationHistory: conversationHistory,  // Send full conversation history
+        browser: formData.targetBrowser || 'chrome',  // Send browser type
+        permissions: formData.permissions || [],  // Send permissions
+        host_permissions: formData.hostPermissions || []  // Send host permissions
       }, {
         onStart: (data) => {
           setReasoningText(prev => prev + `🤖 ${data.message}\n`);
@@ -624,7 +821,21 @@ Make the suggestions specific, actionable, and relevant to the described extensi
         
         onComplete: async (data) => {
           console.log('✅ Modification complete:', data.modifiedFiles?.length, 'files modified');
-          setReasoningText(prev => prev + `\n✅ ${data.summary || 'Modification complete!'}\n`);
+          const completionMessage = `\n✅ ${data.summary || 'Modification complete!'}\n`;
+          setReasoningText(prev => prev + completionMessage);
+          
+          // Add assistant response to conversation history
+          const assistantMessage = {
+            role: 'assistant',
+            content: completionMessage,
+            timestamp: new Date().toISOString(),
+            filesModified: data.modifiedFiles || []
+          };
+          
+          const updatedHistory = [...conversationHistory, userMessage, assistantMessage];
+          console.log('🤖 Adding assistant response to history:', assistantMessage);
+          console.log('📊 Total conversation history:', updatedHistory.length, 'messages');
+          setConversationHistory(updatedHistory);
           
           // Update project ID for future modifications
           if (data.projectId) {
@@ -644,20 +855,44 @@ Make the suggestions specific, actionable, and relevant to the described extensi
             const code = convertAgentFilesToCode(data.files);
             setGeneratedCode(code);
             
-            // Save updated extension to Firebase
+            // Save updated extension to Firebase with conversation history
             if (currentUser) {
               try {
-                await saveExtension(currentUser.uid, {
+                const extensionData = {
                   name: formData.name,
                   description: formData.description,
                   version: formData.version,
                   type: formData.type,
-                  permissions: formData.permissions,
+                  permissions: formData.permissions || [],
+                  hostPermissions: formData.hostPermissions || [],  // Add host permissions
                   author: formData.author,
-                  targetBrowser: formData.targetBrowser,
-                  generatedCode: code
+                  targetBrowser: formData.targetBrowser || 'chrome',
+                  generatedCode: code,
+                  conversationHistory: updatedHistory,  // Save conversation history
+                  projectId: data.projectId || projectId  // Save project ID for vector DB
+                };
+                
+                console.log('💾 Saving to Firebase:', {
+                  extensionId: loadedExtensionId || 'NEW',
+                  conversationHistory: updatedHistory.length + ' messages',
+                  projectId: data.projectId || projectId,
+                  browser: formData.targetBrowser,
+                  permissions: formData.permissions?.length || 0,
+                  hostPermissions: formData.hostPermissions?.length || 0
                 });
-                console.log('Modified extension saved');
+                
+                if (loadedExtensionId) {
+                  // Update existing extension
+                  await updateExtension(loadedExtensionId, extensionData);
+                  console.log('✅ Modified extension and conversation history saved');
+                  console.log('📜 Conversation history:', updatedHistory);
+                } else {
+                  // Save as new extension
+                  const newId = await saveExtension(currentUser.uid, extensionData);
+                  setLoadedExtensionId(newId);
+                  console.log('✅ Extension saved with conversation history');
+                  console.log('📜 Conversation history:', updatedHistory);
+                }
               } catch (saveError) {
                 console.error('Failed to save modified extension:', saveError);
               }

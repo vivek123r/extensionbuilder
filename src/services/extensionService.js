@@ -31,9 +31,12 @@ export const saveExtension = async (userId, extensionData) => {
       version: extensionData.version,
       type: extensionData.type,
       permissions: extensionData.permissions || [],
+      hostPermissions: extensionData.hostPermissions || [],  // Add host permissions
+      targetBrowser: extensionData.targetBrowser || 'chrome',  // Add with default
       author: extensionData.author,
-      targetBrowser: extensionData.targetBrowser,
       generatedCode: extensionData.generatedCode,
+      conversationHistory: extensionData.conversationHistory || [],  // Add conversation history
+      projectId: extensionData.projectId || '',  // Add project ID for vector DB
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     };
@@ -104,17 +107,17 @@ export const getExtensionById = async (extensionId) => {
 /**
  * Update an existing extension
  * @param {string} extensionId - The extension document ID
- * @param {object} updateData - Data to update
+ * @param {object} extensionData - Updated extension data
  * @returns {Promise<void>}
  */
-export const updateExtension = async (extensionId, updateData) => {
+export const updateExtension = async (extensionId, extensionData) => {
   try {
     const docRef = doc(db, EXTENSIONS_COLLECTION, extensionId);
     await updateDoc(docRef, {
-      ...updateData,
+      ...extensionData,
       updatedAt: serverTimestamp()
     });
-    console.log('Extension updated successfully');
+    console.log('Extension updated successfully:', extensionId);
   } catch (error) {
     console.error('Error updating extension:', error);
     throw error;

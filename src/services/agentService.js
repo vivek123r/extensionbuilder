@@ -56,8 +56,9 @@ export const generateWithAgent = async (extensionData, callbacks = {}) => {
     version: extensionData.version || '1.0.0',
     type: extensionData.type || 'popup',
     permissions: extensionData.permissions || [],
+    host_permissions: extensionData.hostPermissions || [],  // Add host permissions
+    browser: extensionData.targetBrowser || 'chrome',  // Change targetBrowser to browser
     author: extensionData.author || '',
-    targetBrowser: extensionData.targetBrowser || 'chrome',
     hasIcon: !!extensionData.icon
   };
 
@@ -221,29 +222,46 @@ export const generateWithAgentSync = async (extensionData) => {
  */
 export const convertAgentFilesToCode = (agentFiles) => {
   const code = {
+    manifest: null,
+    popup: { html: null, css: null, js: null },
+    content: { js: null, css: null },
+    background: { js: null },
+    options: { html: null, js: null, css: null },
     allFiles: agentFiles.map(f => ({
       name: normalizeFilePath(f.name),
       content: f.content
     }))
   };
 
-  // Also extract common files for backward compatibility
+  // Extract and organize files into proper structure for download
   agentFiles.forEach(file => {
     const normalizedName = normalizeFilePath(file.name);
-    const fileName = normalizedName.split('/').pop();
+    const fileName = normalizedName.split('/').pop().toLowerCase();
+    const pathLower = normalizedName.toLowerCase();
     
     if (fileName === 'manifest.json') {
       code.manifest = file.content;
-    } else if (fileName === 'popup.html' || normalizedName.includes('popup')) {
-      if (fileName.endsWith('.html')) code.popupHtml = file.content;
-      if (fileName.endsWith('.js')) code.popupJs = file.content;
-      if (fileName.endsWith('.css')) code.popupCss = file.content;
-    } else if (fileName === 'background.js' || normalizedName.includes('background')) {
-      code.backgroundJs = file.content;
-    } else if (fileName === 'content.js' || normalizedName.includes('content')) {
-      code.contentJs = file.content;
-    } else if (fileName.endsWith('.css')) {
-      code.styles = file.content;
+    } 
+    // Popup files
+    else if (pathLower.includes('popup')) {
+      if (fileName.endsWith('.html')) code.popup.html = file.content;
+      else if (fileName.endsWith('.js')) code.popup.js = file.content;
+      else if (fileName.endsWith('.css')) code.popup.css = file.content;
+    }
+    // Options files
+    else if (pathLower.includes('options')) {
+      if (fileName.endsWith('.html')) code.options.html = file.content;
+      else if (fileName.endsWith('.js')) code.options.js = file.content;
+      else if (fileName.endsWith('.css')) code.options.css = file.content;
+    }
+    // Background script
+    else if (pathLower.includes('background') && fileName.endsWith('.js')) {
+      code.background.js = file.content;
+    }
+    // Content scripts
+    else if (pathLower.includes('content')) {
+      if (fileName.endsWith('.js')) code.content.js = file.content;
+      else if (fileName.endsWith('.css')) code.content.css = file.content;
     }
   });
 
@@ -260,8 +278,8 @@ const normalizeFilePath = (path) => {
   let normalized = path.replace(/\\/g, '/');
   
   // Remove temp directory patterns
-  normalized = normalized.replace(/^.*?[\/\\]extension_[^\/\\]+[\/\\]/, '');
-  normalized = normalized.replace(/^.*?[\/\\]tmp[\/\\]/, '');
+  normalized = normalized.replace(/^.*?[/\\]extension_[^/\\]+[/\\]/, '');
+  normalized = normalized.replace(/^.*?[/\\]tmp[/\\]/, '');
   
   // Remove leading slash if present
   if (normalized.startsWith('/')) {
@@ -294,7 +312,11 @@ export const modifyWithAgent = async (modifyData, callbacks = {}) => {
     name: modifyData.name,
     description: modifyData.description,
     modification: modifyData.modification,
-    files: modifyData.files || []
+    files: modifyData.files || [],
+    conversation_history: modifyData.conversationHistory || [],  // Include conversation history
+    browser: modifyData.browser || 'chrome',  // Include browser
+    permissions: modifyData.permissions || [],  // Include permissions
+    host_permissions: modifyData.host_permissions || []  // Include host permissions
   };
 
   try {
@@ -406,10 +428,12 @@ export const modifyWithAgent = async (modifyData, callbacks = {}) => {
   }
 };
 
-export default {
+const agentService = {
   checkAgentHealth,
   generateWithAgent,
   generateWithAgentSync,
   convertAgentFilesToCode,
   modifyWithAgent
 };
+
+export default agentService;
