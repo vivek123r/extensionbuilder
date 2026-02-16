@@ -242,6 +242,12 @@ const CreateExtensionNew = () => {
         
         setReasoningText('✅ Extension loaded successfully! You can now modify it using the chat below.\n\n💡 Try asking for changes like:\n- "Add dark mode support"\n- "Improve the styling"\n- "Add error handling"\n');
       }
+      
+      // Load project ID if exists (needed for vector DB operations)
+      if (existingExtension.projectId) {
+        console.log('Loading project ID from extension:', existingExtension.projectId);
+        setProjectId(existingExtension.projectId);
+      }
     }
   }, [location.state, agentAvailable]);
 
@@ -690,9 +696,10 @@ Make the suggestions specific, actionable, and relevant to the described extensi
                 permissions: formData.permissions,
                 author: formData.author,
                 targetBrowser: formData.targetBrowser,
-                generatedCode: code
+                generatedCode: code,
+                projectId: data.project_id  // Save project ID for vector DB
               });
-              console.log('Extension saved to database');
+              console.log('Extension saved to database with project ID:', data.project_id);
             } catch (saveError) {
               console.error('Failed to save extension:', saveError);
             }

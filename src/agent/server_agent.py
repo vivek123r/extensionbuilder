@@ -111,6 +111,7 @@ def store_files_in_vector_db(project_id: str, files: List[Dict], metadata: Dict 
                 ids=ids
             )
             print(f"📦 Stored {len(documents)} files in vector DB for project {project_id}")
+            print(f"   Files: {[f.get('name') for f in files]}")
     
     except Exception as e:
         print(f"⚠️ Vector DB store error: {e}")
@@ -166,6 +167,7 @@ def get_all_project_files(project_id: str) -> List[Dict]:
         
         files = []
         if results and results['documents']:
+            print(f"🔍 Retrieved {len(results['documents'])} documents from vector DB")
             for i, doc in enumerate(results['documents']):
                 metadata = results['metadatas'][i] if results['metadatas'] else {}
                 
@@ -173,11 +175,14 @@ def get_all_project_files(project_id: str) -> List[Dict]:
                 file_name = metadata.get('file_name', 'unknown')
                 content = '\n'.join(lines[2:]) if len(lines) > 2 else doc
                 
+                print(f"   - {file_name} ({len(content)} chars)")
+                
                 files.append({
                     "name": file_name,
                     "content": content
                 })
         
+        print(f"📁 Returning {len(files)} files")
         return files
     
     except Exception as e:
@@ -215,14 +220,14 @@ def format_sse(data: dict) -> str:
 
 
 def get_llm():
-    """Get Mimo model for coding"""
+    """Get Mimo model for coding with Chain-of-Thought reasoning"""
     api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("REACT_APP_OPENROUTER_API_KEY")
     if not api_key:
         raise ValueError("No API key found. Set OPENROUTER_API_KEY environment variable")
     
     return ChatOpenAI(
         model="xiaomi/mimo-v2-flash",
-        temperature=0.3,
+        temperature=0.5,  # Higher for better CoT reasoning
         api_key=api_key,
         base_url="https://openrouter.ai/api/v1",
         max_tokens=8000,
@@ -234,37 +239,50 @@ def get_llm():
 
 
 # Strict prompts
-PLANNING_PROMPT = """You are an expert Chrome extension architect. Analyze this extension request and determine ALL files needed.
+PLANNING_PROMPT = """You are an expert Chrome extension architect. Use Chain-of-Thought reasoning to analyze this extension request.
 
-OUTPUT ONLY JSON. NO TEXT BEFORE OR AFTER.
+STEP 1: THINK THROUGH THE REQUIREMENTS
+First, reason through what the extension needs to do:
+- What is the main functionality?
+- Does it need a user interface? (popup, options page)
+- Does it need to interact with web pages? (content scripts)
+- Does it need background processing? (service worker)
+- What permissions are required?
 
-Based on the extension requirements, decide what files are needed:
+STEP 2: DETERMINE THE ARCHITECTURE
+Based on your analysis:
+- List all necessary components
+- Explain why each component is needed
+- Consider if any components can be omitted
+
+STEP 3: OUTPUT JSON
+After reasoning, provide ONLY the JSON response with your decisions.
+
+Available file types:
 - manifest.json (ALWAYS required)
 - popup/popup.html, popup/popup.css, popup/popup.js (if popup UI needed)
 - content/content.js, content/content.css (if page manipulation needed)
 - background/background.js (if background processing, alarms, or messaging needed)
 - options/options.html, options/options.js, options/options.css (if settings page needed)
 - styles/inject.css (if injecting styles into pages)
-- Any other files the extension needs
 
-Example output format:
+Output format:
 {
-  "analysis": "This extension needs X, Y, Z functionality",
-  "architecture": "Popup for UI, content script for page interaction, background for...",
+  "reasoning": "Step-by-step thought process explaining decisions",
+  "analysis": "Summary of what the extension needs",
+  "architecture": "Brief description of the chosen architecture",
   "files": [
     {"name": "manifest.json", "purpose": "Extension manifest with permissions"},
-    {"name": "popup/popup.html", "purpose": "Main popup interface"},
-    {"name": "popup/popup.css", "purpose": "Popup styling"},
-    {"name": "popup/popup.js", "purpose": "Popup logic and event handling"},
-    {"name": "content/content.js", "purpose": "DOM manipulation on target pages"},
-    {"name": "background/background.js", "purpose": "Background event handling"}
+    {"name": "popup/popup.html", "purpose": "Main popup interface"}
   ],
-  "permissions": ["activeTab", "storage", "tabs"],
+  "permissions": ["activeTab", "storage"],
   "host_permissions": []
 }
 
-Think carefully about what the extension ACTUALLY needs. Don't add unnecessary files, but include ALL required files.
-IMPORTANT: Do NOT include any icon files (.png, .svg, .ico) - no icons are provided.
+IMPORTANT: 
+- Do NOT include icon files (.png, .svg, .ico)
+- Be conservative - only include files that are ACTUALLY needed
+- Explain your reasoning in the "reasoning" field
 OUTPUT ONLY THE JSON."""
 
 
@@ -654,7 +672,7 @@ async def generate_extension_files(request: ExtensionRequest) -> AsyncGenerator[
             plan_prompt = f"{PLANNING_PROMPT}\n\nExtension: {request.name} - {request.description}"
             plan_response = await asyncio.wait_for(
                 asyncio.to_thread(llm.invoke, [SystemMessage(content=plan_prompt)]),
-                timeout=30.0
+                timeout=60.0  # Increased for Chain-of-Thought reasoning
             )
             
             plan_content = plan_response.content.strip()
@@ -838,7 +856,7 @@ def get_modification_prompt(modification: str, relevant_files: List[Dict], all_f
     elif is_text_change:
         specific_constraints = "\n⚠️ TEXT CHANGE DETECTED: Only modify HTML files or JavaScript strings. Do NOT modify CSS or create new files."
     
-    return f'''You are an expert Chrome extension developer. The user wants to modify their extension.
+    return f'''You are an expert Chrome extension developer. Use Chain-of-Thought reasoning to analyze this modification request.
 
 {history_context}
 
@@ -849,8 +867,24 @@ CURRENT MODIFICATION REQUEST:
 
 {full_context}
 
-TASK: Analyze the modification request and conversation history to determine which files need to be updated.
-Consider previous modifications when planning changes. Build upon or adjust previous work as needed.
+STEP 1: UNDERSTAND THE REQUEST
+First, reason through what the user is asking:
+- What specific change do they want?
+- Is it a visual change (CSS), functional change (JS), or structural change (HTML)?
+- Does it require new files or just modifications to existing ones?
+
+STEP 2: IDENTIFY AFFECTED FILES
+Based on your understanding:
+- Which files are DIRECTLY affected by this change?
+- Can the change be accomplished with minimal file modifications?
+- Review conversation history - are there previous changes to build upon?
+
+STEP 3: PLAN THE MODIFICATIONS
+Before deciding:
+- Be EXTREMELY conservative - fewer files is better
+- For CSS changes: only modify CSS files
+- For text changes: only modify HTML or JS strings
+- For functional changes: identify the specific JS files involved
 
 IMPORTANT CONSTRAINTS:
 1. ONLY modify files that are DIRECTLY related to the request
@@ -868,19 +902,21 @@ CRITICAL INTEGRATION RULE:
 - New background.js → update "background"."service_worker"
 - New popup files → ensure "action"."default_popup" points to correct HTML + HTML links to CSS/JS
 
-OUTPUT FORMAT - Return ONLY valid JSON with this structure:
+STEP 4: OUTPUT JSON
+After reasoning through the above steps, provide ONLY the JSON response:
 {{
-  "analysis": "Brief explanation of what needs to change (referencing previous changes if relevant)",
+  "reasoning": "Step-by-step thought process explaining your decisions",
+  "analysis": "Brief summary of what needs to change",
   "files_to_modify": [
     {{
       "name": "path/to/file.ext",
       "action": "modify",
-      "reason": "Why this file needs to change"
+      "reason": "Specific reason why this file needs to change"
     }}
   ]
 }}
 
-Only include files that ACTUALLY need to change. For UI changes, typically only 1 file needs modification.
+Remember: For UI changes, typically only 1 file needs modification.
 OUTPUT ONLY THE JSON. NO MARKDOWN BLOCKS.'''
 
 
@@ -926,12 +962,33 @@ async def modify_extension_files(request: ModifyRequest) -> AsyncGenerator[str, 
     try:
         llm = get_llm()
         
+        # Ensure project_id exists (generate if missing)
+        project_id = request.project_id or get_project_id(request.name, request.description)
+        
         # Get files from vector DB or use provided files
-        all_files = get_all_project_files(request.project_id)
-        if not all_files and request.files:
-            all_files = request.files
-            # Store them in vector DB for future use
-            store_files_in_vector_db(request.project_id, all_files, {
+        db_files = get_all_project_files(project_id)
+        
+        # Merge vector DB files with provided files to prevent data loss
+        # Prioritize request.files (current state) over db_files
+        file_dict_merged = {}
+        
+        # First, add all files from vector DB (older state)
+        for f in db_files:
+            file_dict_merged[f['name']] = f['content']
+        
+        # Then, override/add with files from request (current state - source of truth)
+        for f in request.files:
+            file_name = f.get('name', '')
+            if file_name:
+                file_dict_merged[file_name] = f.get('content', '')
+        
+        # Convert back to list
+        all_files = [{"name": name, "content": content} for name, content in file_dict_merged.items()]
+        
+        # Always sync vector DB with current state to prevent file loss
+        if len(request.files) != len(db_files) or len(all_files) != len(db_files):
+            print(f"🔄 Syncing vector DB (project: {project_id}): DB had {len(db_files)}, request has {len(request.files)}, merged to {len(all_files)} files")
+            store_files_in_vector_db(project_id, all_files, {
                 "extension_name": request.name,
                 "extension_description": request.description
             })
@@ -940,21 +997,23 @@ async def modify_extension_files(request: ModifyRequest) -> AsyncGenerator[str, 
             yield format_sse({"type": "error", "message": "No files found for this project"})
             return
         
-        yield format_sse({"type": "thinking", "text": f"📂 Found {len(all_files)} project files"})
+        # Debug info (console only, not UI)
+        print(f"📂 Working with {len(all_files)} project files: {[f['name'] for f in all_files]}")
         
         # Get relevant files using vector search (limit to 2 to avoid over-modification)
-        relevant_files = retrieve_relevant_context(request.project_id, request.modification, n_results=2)
+        relevant_files = retrieve_relevant_context(project_id, request.modification, n_results=2)
         
+        # Debug info (console only, not UI)
         if relevant_files:
-            yield format_sse({"type": "thinking", "text": f"🎯 Found {len(relevant_files)} relevant files"})
+            print(f"🎯 Found {len(relevant_files)} relevant files: {[f['name'] for f in relevant_files]}")
         
         # PHASE 1: Analyze what needs to change
         yield format_sse({"type": "thinking", "text": "🤔 Planning modifications..."})
         
-        # Add conversation history context
+        # Debug: conversation history (console only)
         if request.conversation_history:
             history_count = len(request.conversation_history)
-            yield format_sse({"type": "thinking", "text": f"📜 Using {history_count} previous messages for context"})
+            print(f"📜 Using {history_count} previous messages for context")
         
         analysis_prompt = get_modification_prompt(
             request.modification, 
@@ -966,7 +1025,7 @@ async def modify_extension_files(request: ModifyRequest) -> AsyncGenerator[str, 
         try:
             analysis_response = await asyncio.wait_for(
                 asyncio.to_thread(llm.invoke, [SystemMessage(content=analysis_prompt)]),
-                timeout=90.0
+                timeout=120.0  # Increased for Chain-of-Thought reasoning
             )
             
             analysis_content = analysis_response.content.strip()
@@ -1013,7 +1072,7 @@ async def modify_extension_files(request: ModifyRequest) -> AsyncGenerator[str, 
                 "type": "complete",
                 "files": all_files,
                 "message": "No modifications required",
-                "project_id": request.project_id
+                "project_id": project_id
             })
             return
         
@@ -1031,9 +1090,9 @@ async def modify_extension_files(request: ModifyRequest) -> AsyncGenerator[str, 
             # Track if this is a new file creation
             is_new_file = file_name not in original_files
             
-            # Skip if action is "create" for a non-existent file (prevent unnecessary file creation)
-            if action == "create" and is_new_file:
-                yield format_sse({"type": "thinking", "text": f"⚠️ Skipping creation of {file_name} - not in original project"})
+            # CRITICAL: Skip modification of files that don't exist (prevent file creation)
+            if is_new_file:
+                yield format_sse({"type": "thinking", "text": f"⚠️ Skipping {file_name} - not in original project (preventing file creation)"})
                 continue
             
             yield format_sse({"type": "thinking", "text": f"🔄 {action.title()}: {file_name}"})
@@ -1170,7 +1229,7 @@ async def modify_extension_files(request: ModifyRequest) -> AsyncGenerator[str, 
                 yield format_sse({"type": "thinking", "text": f"⚠️ Could not auto-update manifest: {str(e)[:50]}"})
         
         # Update vector database with modified files
-        store_files_in_vector_db(request.project_id, final_files, {
+        store_files_in_vector_db(project_id, final_files, {
             "extension_name": request.name,
             "extension_description": request.description,
             "last_modification": request.modification
@@ -1185,7 +1244,7 @@ async def modify_extension_files(request: ModifyRequest) -> AsyncGenerator[str, 
             "files": final_files,
             "modified_files": modified_files,
             "message": f"Modified {len(modified_files)} files",
-            "project_id": request.project_id
+            "project_id": project_id
         })
         
     except Exception as e:
