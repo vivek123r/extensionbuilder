@@ -227,7 +227,7 @@ def get_llm():
     
     return ChatOpenAI(
         model="xiaomi/mimo-v2-flash",
-        temperature=0.5,  # Higher for better CoT reasoning
+        temperature=0.5,
         api_key=api_key,
         base_url="https://openrouter.ai/api/v1",
         max_tokens=8000,
